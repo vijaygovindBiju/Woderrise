@@ -1,0 +1,28 @@
+schema_version: '1.0.0'
+package:
+  id: com.catppuccin.waybar
+  name: Catppuccin Waybar Mocha Theme
+  version: '1.0.0'
+  type: theme
+  category: bar_themes_modules
+  license: MIT
+  authors:
+    - name: Catppuccin contributors
+      url: https://github.com/catppuccin/waybar
+  description: Catppuccin Mocha color definitions for Waybar.
+  tags: [waybar, theme, catppuccin, mocha]
+  repository: https://github.com/catppuccin/waybar
+compatibility:
+  display_server: wayland_only
+  architectures: [x86_64, aarch64]
+artifacts:
+  - path: artifacts/mocha.css
+    sha256: a6e30597ccc828e898844eb0cea9df7d73879ff5672a6a550f3acc24c93edd17
+    url: https://raw.githubusercontent.com/catppuccin/waybar/ee8ed32b4f63e9c417249c109818dcc05a2e25da/themes/mocha.css
+install:
+  files:
+    - source: artifacts/mocha.css
+      target: ~/.config/waybar/catppuccin-mocha.css
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true

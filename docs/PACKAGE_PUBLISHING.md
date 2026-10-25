@@ -67,11 +67,21 @@ woderrise sign woderrise.yaml --key ~/.config/woderrise/creator.key
 ```
 
 ### Step 5: Registry Pull Request
-The creator creates a GitHub Pull Request against `github.com/woderrise/registry`, appending the new version line to the appropriate sharded JSON file (e.g. `sh/ca/com.github.myuser.catppuccin-waybar.json`).
+The current client-compatible submission is a new immutable version directory
+under `packages/<package-id>/<version>/`, containing `woderrise.yaml` and the
+referenced local artifact bytes. The client importer validates this directory
+before indexing it. Appending a version line to a sharded JSON file remains a
+planned transport format and is not accepted by the current client.
 
 ---
 
 ## 3. Automated Validation & Security Checks
+
+The current registry CI validates deterministic fixtures only. Remote artifact
+fetching and registry signature verification are not yet implemented in the
+client or CI; the package importer therefore describes entries as
+upstream-pinned and hash-verified, not cryptographically trusted by a registry
+signature.
 
 Every incoming Pull Request triggers an automated GitHub Actions CI suite executing five verification gates:
 

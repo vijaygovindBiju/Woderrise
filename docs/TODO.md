@@ -3,7 +3,7 @@
 > **Document ID:** SPEC-MGT-TODO-037  
 > **Status:** Actionable Engineering Task Backlog  
 > **Version:** 1.0.0  
-> **Last Updated:** 2026-10-24  
+> **Last Updated:** 2026-10-25
 
 ---
 
@@ -96,11 +96,11 @@ Every task in this backlog is structured to be completely actionable by an engin
 > Crossterm terminal interface. The `woderrise-gui` package now provides the
 > interactive TUI and remains independent of GTK/Wayland system libraries.
 
-- [ ] **`TASK-M3-GUI-001`**: Scaffold Libadwaita window with `AdwNavigationSplitView` and responsive sidebar.
+- [x] **`TASK-M3-GUI-001`**: Scaffold Ratatui/Crossterm TUI with responsive page navigation and keyboard controls.
   - **Subsystem:** UI Layout
   - **Dependencies:** `TASK-M2-DBUS-001`
   - **Completion Criteria:** TUI launches in a terminal with keyboard navigation.
-- [ ] **`TASK-M3-GUI-002`**: Implement Local Full-Text Search and Category Catalog Views.
+- [x] **`TASK-M3-GUI-002`**: Implement local SQLite FTS search and category catalog views.
   - **Subsystem:** UI Discovery
   - **Dependencies:** `TASK-M3-GUI-001`
   - **Completion Criteria:** Renders package cards; queries SQLite FTS5 index in < 50ms.
@@ -112,11 +112,11 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Subsystem:** UI Diff Viewer
   - **Dependencies:** `TASK-M3-GUI-001`
   - **Completion Criteria:** Renders synchronized dual-pane diffs for configuration files.
-- [ ] **`TASK-M3-GUI-005`**: Implement Installation Preview Modal and Live Transaction Progress Stream.
+- [ ] **`TASK-M3-GUI-005`**: Implement installation preview and asynchronous live transaction progress.
   - **Subsystem:** UI Transactions
   - **Dependencies:** `TASK-M3-GUI-004`, `TASK-M2-DBUS-001`
   - **Completion Criteria:** Displays pre-install safety summary; renders real-time pipeline step progress.
-- [ ] **`TASK-M3-GUI-006`**: Implement Chronological History and 1-Click Rollback Interface.
+- [x] **`TASK-M3-GUI-006`**: Implement chronological history and confirmed rollback interface.
   - **Subsystem:** UI History
   - **Dependencies:** `TASK-M3-GUI-001`, `TASK-M2-DBUS-001`
   - **Completion Criteria:** Lists transaction records; triggers rollback with optimistic concurrency modal if needed.
@@ -140,6 +140,8 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Limitation:** `registry/fixtures/` contains 50 deterministic, explicitly
     non-publishable validation fixtures. They make no official/community
     provenance claims and are intentionally excluded from the installable index.
+  A single pinned Catppuccin Waybar package is available under
+  `registry/packages/`; remote signature verification is not implemented.
 
 ---
 

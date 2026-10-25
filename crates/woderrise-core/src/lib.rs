@@ -29,6 +29,8 @@ pub enum WoderriseError {
     MissingBackup(String),
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("registry refresh failed: {0}")]
+    Registry(String),
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
     #[error("{0}")]
@@ -46,6 +48,8 @@ pub mod sandbox;
 pub struct Manifest {
     pub schema_version: String,
     pub package: PackageSpec,
+    #[serde(default)]
+    pub yanked: bool,
     #[serde(default)]
     pub previews: Option<Previews>,
     #[serde(default)]
@@ -153,6 +157,8 @@ pub struct ConflictSpec {
 pub struct Artifact {
     pub path: String,
     pub sha256: String,
+    #[serde(default)]
+    pub url: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstallSpec {
@@ -224,6 +230,27 @@ impl Manifest {
                 "package id and version are required".into(),
             ));
         }
+        if !self.package.id.contains('.')
+            || !self.package.id.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-')
+            })
+        {
+            return Err(WoderriseError::Validation(format!(
+                "invalid reverse-DNS package id {}",
+                self.package.id
+            )));
+        }
+        if !is_semver(&self.package.version) {
+            return Err(WoderriseError::Validation(format!(
+                "invalid semantic version {}",
+                self.package.version
+            )));
+        }
+        if self.package.category.trim().is_empty() || self.package.license.trim().is_empty() {
+            return Err(WoderriseError::Validation(
+                "package category and license are required".into(),
+            ));
+        }
         for p in self
             .artifacts
             .iter()
@@ -231,6 +258,14 @@ impl Manifest {
             .chain(self.install.files.iter().map(|f| &f.source))
         {
             validate_relative(p)?;
+        }
+        fn is_semver(version: &str) -> bool {
+            let core = version.split(['-', '+']).next().unwrap_or_default();
+            let parts: Vec<_> = core.split('.').collect();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
         }
         for f in &self.install.files {
             validate_target(&f.target)?;
@@ -247,6 +282,17 @@ impl Manifest {
                     "invalid SHA-256 for {}",
                     a.path
                 )));
+            }
+            if let Some(url) = &a.url {
+                if !(url.starts_with("https://")
+                    || url.starts_with("http://")
+                    || url.starts_with("file://"))
+                {
+                    return Err(WoderriseError::Validation(format!(
+                        "unsupported artifact URL scheme for {}",
+                        a.path
+                    )));
+                }
             }
         }
         Ok(())
@@ -404,10 +450,9 @@ pub fn atomic_replace(source: &Path, target: &Path, mode: u32) -> Result<()> {
     ));
     fs::copy(source, &tmp)?;
     set_mode(&tmp, mode)?;
-    let r = fs::rename(&tmp, target);
-    if r.is_err() {
+    if let Err(error) = fs::rename(&tmp, target) {
         let _ = fs::remove_file(&tmp);
-        return Err(r.unwrap_err().into());
+        return Err(error.into());
     }
     Ok(())
 }
@@ -464,6 +509,7 @@ impl InstallationEngine {
             .parent()
             .ok_or_else(|| WoderriseError::Other("manifest has no parent directory".into()))?;
         let manifest = Manifest::from_file(&manifest_path)?;
+        validate_install_sources(base_dir, &manifest)?;
         let txn = self.db.begin_transaction(
             &manifest.package.id,
             &manifest.package.version,
@@ -632,6 +678,48 @@ impl InstallationEngine {
         Ok(n)
     }
 }
+fn validate_install_sources(dir: &Path, manifest: &Manifest) -> Result<()> {
+    if !manifest.install.config_injections.is_empty()
+        || !manifest.install.service_triggers.is_empty()
+    {
+        return Err(WoderriseError::Validation(
+            "config injections and service triggers are not supported by this installer".into(),
+        ));
+    }
+    for artifact in &manifest.artifacts {
+        let path = dir.join(&artifact.path);
+        let actual = sha256_file(&path)?;
+        if actual != artifact.sha256 {
+            return Err(WoderriseError::Checksum {
+                path: artifact.path.clone(),
+                expected: artifact.sha256.clone(),
+                actual,
+            });
+        }
+    }
+    for file in &manifest.install.files {
+        let artifact = manifest
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.path == file.source)
+            .ok_or_else(|| {
+                WoderriseError::Validation(format!(
+                    "install source is not declared as an artifact: {}",
+                    file.source
+                ))
+            })?;
+        let path = dir.join(&file.source);
+        let actual = sha256_file(&path)?;
+        if actual != artifact.sha256 {
+            return Err(WoderriseError::Checksum {
+                path: file.source.clone(),
+                expected: artifact.sha256.clone(),
+                actual,
+            });
+        }
+    }
+    Ok(())
+}
 fn expand_target(target: &str, home: &Path) -> Result<PathBuf> {
     if target == "~" {
         return Ok(home.to_path_buf());
@@ -673,7 +761,7 @@ mod tests {
     }
     #[test]
     fn parses_and_rejects_manifest() {
-        let y="schema_version: '1.0.0'\npackage:\n  id: x\n  name: X\n  version: '1.0.0'\n  type: config\n  category: c\n  license: MIT\n  description: d\ninstall:\n  files: []";
+        let y="schema_version: '1.0.0'\npackage:\n  id: org.test.x\n  name: X\n  version: '1.0.0'\n  type: config\n  category: c\n  license: MIT\n  description: d\ninstall:\n  files: []";
         assert!(Manifest::parse(y).is_ok());
         assert!(
             Manifest::parse(&y.replace("schema_version: '1.0.0'", "schema_version: '2.0.0'"))
@@ -700,11 +788,19 @@ mod tests {
         let home = package.join("home");
         fs::create_dir_all(&home).unwrap();
         fs::write(package.join("payload"), b"payload").unwrap();
+        let payload_hash = sha256_bytes(b"payload");
         fs::write(
             package.join("fixture.yaml"),
             "schema_version: '1.0.0'\npackage:\n  id: fixture.install\n  name: Install Fixture\n  version: '1.0.0'\n  type: config\n  category: test\n  license: MIT\n  description: test\ninstall:\n  files:\n    - source: payload\n      target: .config/woderrise-test\n",
         )
         .unwrap();
+        let manifest_path = package.join("fixture.yaml");
+        let mut manifest = fs::read_to_string(&manifest_path).unwrap();
+        manifest = manifest.replace(
+            "install:\n",
+            &format!("artifacts:\n  - path: payload\n    sha256: {payload_hash}\ninstall:\n"),
+        );
+        fs::write(manifest_path, manifest).unwrap();
         let data = package.join("data");
         let db = Database::open(data.join("journal.db")).unwrap();
         let engine = InstallationEngine {
@@ -739,6 +835,71 @@ mod tests {
                 )
                 .unwrap(),
             "COMMITTED"
+        );
+        let _ = fs::remove_dir_all(package);
+    }
+
+    #[test]
+    fn rejects_unlisted_install_source_without_modifying_home() {
+        let package = root("unlisted-source");
+        let home = package.join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(package.join("payload"), b"payload").unwrap();
+        fs::write(
+            package.join("fixture.yaml"),
+            "schema_version: '1.0.0'\npackage:\n  id: fixture.unlisted\n  name: Unlisted Fixture\n  version: '1.0.0'\n  type: config\n  category: test\n  license: MIT\n  description: test\nartifacts: []\ninstall:\n  files:\n    - source: payload\n      target: .config/should-not-exist\n",
+        )
+        .unwrap();
+        let data = package.join("data");
+        let db = Database::open(data.join("journal.db")).unwrap();
+        let engine = InstallationEngine {
+            db,
+            backups: BackupManager::new(data.join("backups")).unwrap(),
+            home: home.clone(),
+        };
+        assert!(engine
+            .install(package.join("fixture.yaml"), "test")
+            .is_err());
+        assert!(!home.join(".config/should-not-exist").exists());
+        let _ = fs::remove_dir_all(package);
+    }
+
+    #[test]
+    fn failed_second_operation_compensates_first_operation() {
+        let package = root("partial-failure");
+        let home = package.join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(package.join("first"), b"first").unwrap();
+        fs::write(package.join("second"), b"second").unwrap();
+        let first_hash = sha256_bytes(b"first");
+        let second_hash = sha256_bytes(b"second");
+        let manifest = format!(
+            "schema_version: '1.0.0'\npackage:\n  id: fixture.partial\n  name: Partial Fixture\n  version: '1.0.0'\n  type: config\n  category: test\n  license: MIT\n  description: test\nartifacts:\n  - path: first\n    sha256: {first_hash}\n  - path: second\n    sha256: {second_hash}\ninstall:\n  files:\n    - source: first\n      target: .config/first\n    - source: second\n      target: .config\n"
+        );
+        fs::write(package.join("fixture.yaml"), manifest).unwrap();
+        let data = package.join("data");
+        let db = Database::open(data.join("journal.db")).unwrap();
+        let engine = InstallationEngine {
+            db,
+            backups: BackupManager::new(data.join("backups")).unwrap(),
+            home: home.clone(),
+        };
+        assert!(engine
+            .install(package.join("fixture.yaml"), "test")
+            .is_err());
+        assert!(!home.join(".config/first").exists());
+        assert!(!home.join(".config").join("second").exists());
+        assert_eq!(
+            engine
+                .db
+                .conn
+                .query_row(
+                    "SELECT status FROM transactions ORDER BY started_at DESC LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "ABORTED_RECOVERED"
         );
         let _ = fs::remove_dir_all(package);
     }

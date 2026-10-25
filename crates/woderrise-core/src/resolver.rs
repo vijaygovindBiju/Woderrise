@@ -112,8 +112,14 @@ mod tests {
             format!("schema_version: '1.0.0'\npackage:\n  id: {id}\n  name: x\n  version: '1.0.0'\n  type: config\n  category: x\n  license: MIT\n  description: x\ndependencies:\n  packages:\n    - id: {dep}\n      version: '>=1.0.0'\ninstall: {{ files: [] }}")
         };
         let mut all = HashMap::new();
-        all.insert("a".into(), Manifest::parse(&yaml("a", "b")).unwrap());
-        all.insert("b".into(), Manifest::parse(&yaml("b", "a")).unwrap());
-        assert!(resolve(&all, &["a".into()]).is_err());
+        all.insert(
+            "org.test.a".into(),
+            Manifest::parse(&yaml("org.test.a", "org.test.b")).unwrap(),
+        );
+        all.insert(
+            "org.test.b".into(),
+            Manifest::parse(&yaml("org.test.b", "org.test.a")).unwrap(),
+        );
+        assert!(resolve(&all, &["org.test.a".into()]).is_err());
     }
 }

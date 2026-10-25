@@ -8,3 +8,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 registry/fixtures/validate.py
+      - run: cargo test --workspace --quiet

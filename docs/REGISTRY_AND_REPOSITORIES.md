@@ -41,7 +41,29 @@ flowchart LR
 
 ---
 
-## 2. Repository Structure & Sharded Index
+## 2. Repository Structure & Current Import Format
+
+The implemented client currently imports versioned package directories. This
+format keeps the manifest and its verified local artifacts together and gives
+the installer an exact immutable path:
+
+```text
+registry/
+└── packages/
+    └── com.catppuccin.waybar/
+        └── 1.0.0/
+            ├── woderrise.yaml
+            └── artifacts/
+                └── mocha.css
+```
+
+The importer recursively discovers files named `woderrise.yaml`, validates
+their package ID/version, verifies every referenced artifact, and atomically
+replaces the SQLite catalog. Duplicate `(package_id, version)` entries fail
+the import transaction. The client does not currently parse the JSONL format
+described below; that remains a future registry transport/index format.
+
+### 2.1 Planned Sharded Index Format
 
 To prevent git repository bloat as the catalog scales to tens of thousands of packages, the registry index uses a **2-character prefix sharding scheme** (identical to Cargo):
 
@@ -60,7 +82,7 @@ registry/
         └── com.catppuccin.waybar.json
 ```
 
-### 2.1 Sharded Index Format (`com.catppuccin.waybar.json`)
+### 2.2 Sharded Index Format (`com.catppuccin.waybar.json`)
 Each package file in the index is an append-only JSON Lines (`.jsonl`) file, where each line represents a released semantic version:
 
 ```json

@@ -1,4 +1,4 @@
-use std::{fs, io, path::PathBuf, time::Duration};
+use std::{io, path::PathBuf, time::Duration};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -14,7 +14,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use rusqlite::Connection;
-use woderrise_core::{BackupManager, Database, InstallationEngine, Manifest};
+use woderrise_core::{catalog, BackupManager, Database, InstallationEngine, Manifest};
 
 const TABS: [&str; 5] = ["Catalog", "Install", "Rollback", "History", "Journal"];
 
@@ -112,7 +112,7 @@ impl App {
                         self.status = "Journal unavailable".into();
                     }
                 }
-                self.catalog = load_catalog(&db.conn, &registry_dir(), &mut self.catalog_error);
+                self.catalog = load_catalog(&db, &registry_dir(), &mut self.catalog_error);
                 self.transactions = load_transactions(&db.conn);
                 self.interrupted_transactions = count_interrupted(&db.conn);
             }
@@ -910,42 +910,39 @@ fn draw_confirmation(frame: &mut Frame<'_>, title: &str, message: &str) {
     );
 }
 
-fn load_catalog(conn: &Connection, root: &PathBuf, error: &mut Option<String>) -> Vec<CatalogItem> {
-    let mut entries = Vec::new();
-    let read_dir = match fs::read_dir(root) {
-        Ok(entries) => entries,
+fn load_catalog(db: &Database, root: &PathBuf, error: &mut Option<String>) -> Vec<CatalogItem> {
+    if let Err(e) = catalog::import_registry(db, root) {
+        *error = Some(e.to_string());
+    }
+    let records = match catalog::search(db, "", 1000) {
+        Ok(records) => records,
         Err(e) => {
-            *error = Some(format!("Catalog unavailable at {}: {e}", root.display()));
-            return entries;
+            *error = Some(e.to_string());
+            return Vec::new();
         }
     };
-    for entry in read_dir.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
-            continue;
-        }
-        match Manifest::from_file(&path) {
+    let mut entries = Vec::new();
+    for record in records {
+        match catalog::manifest(db, &record.id, &record.version) {
             Ok(manifest) => {
-                let installed = conn.query_row(
+                let installed = db.conn.query_row(
                     "SELECT 1 FROM installed_packages WHERE package_id=?1 AND active_version=?2 LIMIT 1",
                     rusqlite::params![manifest.package.id, manifest.package.version],
                     |_| Ok(true),
                 ).unwrap_or(false);
                 entries.push(CatalogItem {
-                    id: manifest.package.id.clone(),
-                    name: manifest.package.name.clone(),
-                    description: manifest.package.description.clone(),
-                    category: manifest.package.category.clone(),
-                    version: manifest.package.version.clone(),
-                    manifest_dir: path.parent().unwrap_or(root).to_path_buf(),
-                    manifest_path: path.clone(),
+                    id: record.id,
+                    name: record.name,
+                    description: record.description,
+                    category: record.category,
+                    version: record.version,
+                    manifest_dir: record.manifest_path.parent().unwrap_or(root).to_path_buf(),
+                    manifest_path: record.manifest_path,
                     manifest,
                     installed,
                 });
             }
-            Err(e) => {
-                *error = Some(format!("Invalid manifest {}: {e}", path.display()));
-            }
+            Err(e) => *error = Some(e.to_string()),
         }
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1067,7 +1064,7 @@ fn registry_dir() -> PathBuf {
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join("registry/fixtures")
+                .join("registry/packages")
         })
 }
 
@@ -1076,19 +1073,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_loads_valid_registry_fixtures_without_hardcoded_entries() {
+    fn catalog_loads_valid_registry_packages_without_hardcoded_entries() {
         let db = Database::in_memory().expect("database");
         let mut error = None;
         let entries = load_catalog(
-            &db.conn,
-            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../registry/fixtures"),
+            &db,
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../registry/packages"),
             &mut error,
         );
-        assert_eq!(entries.len(), 50);
+        assert_eq!(entries.len(), 1);
         assert!(error.is_none());
-        assert!(entries
-            .iter()
-            .all(|entry| entry.manifest.package.id.starts_with("fixture.")));
+        assert_eq!(entries[0].manifest.package.id, "com.catppuccin.waybar");
     }
 
     #[test]

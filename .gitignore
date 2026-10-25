@@ -1,0 +1,5 @@
+target/
+**/.woderrise-test-*/
+*.db
+*.db-shm
+*.db-wal

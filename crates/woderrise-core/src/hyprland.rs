@@ -51,7 +51,7 @@ impl<T: HyprlandTransport> HyprlandClient<T> {
         self.transport.request("reload").map(|_| ())
     }
     pub fn plugin_load(&self, path: &str, expected_abi: Option<&str>) -> Result<()> {
-        if PathBuf::from(path).is_absolute() == false || path.contains("..") {
+        if !PathBuf::from(path).is_absolute() || path.contains("..") {
             return Err(WoderriseError::Validation(
                 "plugin path must be absolute and confined".into(),
             ));
