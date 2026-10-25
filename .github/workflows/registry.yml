@@ -1,0 +1,10 @@
+name: Registry validation
+on:
+  pull_request:
+    paths: ['registry/**']
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 registry/fixtures/validate.py

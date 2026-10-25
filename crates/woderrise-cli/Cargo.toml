@@ -1,0 +1,13 @@
+[package]
+name = "woderrise-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+woderrise-core = { path = "../woderrise-core" }
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "woderrise"
+path = "src/main.rs"

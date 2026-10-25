@@ -1,0 +1,11 @@
+[package]
+name = "woderrise-dbus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+woderrise-core = { path = "../woderrise-core" }
+
+[lib]
+path = "src/lib.rs"

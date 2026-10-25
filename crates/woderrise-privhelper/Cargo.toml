@@ -1,0 +1,12 @@
+[package]
+name = "woderrise-privhelper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+woderrise-core = { path = "../woderrise-core" }
+
+[[bin]]
+name = "woderrise-privhelper"
+path = "src/main.rs"

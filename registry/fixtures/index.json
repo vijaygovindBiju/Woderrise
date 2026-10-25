@@ -1,0 +1,306 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "validated-fixture-seed",
+  "entries": [
+    {
+      "id": "fixture.woderrise.catalog001",
+      "path": "registry/fixtures/fixture.woderrise.catalog001.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog002",
+      "path": "registry/fixtures/fixture.woderrise.catalog002.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog003",
+      "path": "registry/fixtures/fixture.woderrise.catalog003.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog004",
+      "path": "registry/fixtures/fixture.woderrise.catalog004.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog005",
+      "path": "registry/fixtures/fixture.woderrise.catalog005.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog006",
+      "path": "registry/fixtures/fixture.woderrise.catalog006.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog007",
+      "path": "registry/fixtures/fixture.woderrise.catalog007.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog008",
+      "path": "registry/fixtures/fixture.woderrise.catalog008.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog009",
+      "path": "registry/fixtures/fixture.woderrise.catalog009.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog010",
+      "path": "registry/fixtures/fixture.woderrise.catalog010.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog011",
+      "path": "registry/fixtures/fixture.woderrise.catalog011.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog012",
+      "path": "registry/fixtures/fixture.woderrise.catalog012.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog013",
+      "path": "registry/fixtures/fixture.woderrise.catalog013.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog014",
+      "path": "registry/fixtures/fixture.woderrise.catalog014.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog015",
+      "path": "registry/fixtures/fixture.woderrise.catalog015.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog016",
+      "path": "registry/fixtures/fixture.woderrise.catalog016.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog017",
+      "path": "registry/fixtures/fixture.woderrise.catalog017.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog018",
+      "path": "registry/fixtures/fixture.woderrise.catalog018.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog019",
+      "path": "registry/fixtures/fixture.woderrise.catalog019.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog020",
+      "path": "registry/fixtures/fixture.woderrise.catalog020.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog021",
+      "path": "registry/fixtures/fixture.woderrise.catalog021.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog022",
+      "path": "registry/fixtures/fixture.woderrise.catalog022.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog023",
+      "path": "registry/fixtures/fixture.woderrise.catalog023.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog024",
+      "path": "registry/fixtures/fixture.woderrise.catalog024.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog025",
+      "path": "registry/fixtures/fixture.woderrise.catalog025.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog026",
+      "path": "registry/fixtures/fixture.woderrise.catalog026.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog027",
+      "path": "registry/fixtures/fixture.woderrise.catalog027.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog028",
+      "path": "registry/fixtures/fixture.woderrise.catalog028.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog029",
+      "path": "registry/fixtures/fixture.woderrise.catalog029.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog030",
+      "path": "registry/fixtures/fixture.woderrise.catalog030.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog031",
+      "path": "registry/fixtures/fixture.woderrise.catalog031.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog032",
+      "path": "registry/fixtures/fixture.woderrise.catalog032.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog033",
+      "path": "registry/fixtures/fixture.woderrise.catalog033.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog034",
+      "path": "registry/fixtures/fixture.woderrise.catalog034.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog035",
+      "path": "registry/fixtures/fixture.woderrise.catalog035.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog036",
+      "path": "registry/fixtures/fixture.woderrise.catalog036.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog037",
+      "path": "registry/fixtures/fixture.woderrise.catalog037.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog038",
+      "path": "registry/fixtures/fixture.woderrise.catalog038.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog039",
+      "path": "registry/fixtures/fixture.woderrise.catalog039.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog040",
+      "path": "registry/fixtures/fixture.woderrise.catalog040.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog041",
+      "path": "registry/fixtures/fixture.woderrise.catalog041.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog042",
+      "path": "registry/fixtures/fixture.woderrise.catalog042.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog043",
+      "path": "registry/fixtures/fixture.woderrise.catalog043.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog044",
+      "path": "registry/fixtures/fixture.woderrise.catalog044.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog045",
+      "path": "registry/fixtures/fixture.woderrise.catalog045.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog046",
+      "path": "registry/fixtures/fixture.woderrise.catalog046.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog047",
+      "path": "registry/fixtures/fixture.woderrise.catalog047.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog048",
+      "path": "registry/fixtures/fixture.woderrise.catalog048.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog049",
+      "path": "registry/fixtures/fixture.woderrise.catalog049.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    },
+    {
+      "id": "fixture.woderrise.catalog050",
+      "path": "registry/fixtures/fixture.woderrise.catalog050.yaml",
+      "fixture": true,
+      "provenance": "local-validation-fixture"
+    }
+  ]
+}

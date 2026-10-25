@@ -26,7 +26,7 @@ Woderrise transforms this workflow into an intuitive, modern application store e
 | **Package Manifest & Schema Specs** | ✅ **Documented** | Manifest v1 specification with JSON schemas and examples established. |
 | **Installation Engine Core** | 🟡 **Planned (Milestone 1)** | Core transaction engine, SQLite WAL journaling, and rollback implementation pending. |
 | **D-Bus Daemon (`woderised`)** | 🟡 **Planned (Milestone 2)** | System/session IPC broker and privilege isolation pending. |
-| **Graphical Frontend (`woderrise-gui`)** | 🟡 **Planned (Milestone 3)** | Native Libadwaita / GTK4 desktop interface pending. |
+| **Terminal Frontend (`woderrise-gui`)** | ✅ **Available** | Ratatui + Crossterm terminal interface for catalog and package workflows. |
 | **Community Registry & Indexer** | 🟡 **Planned (Milestone 4)** | Git-backed, content-addressed package registry pending. |
 
 > [!NOTE]

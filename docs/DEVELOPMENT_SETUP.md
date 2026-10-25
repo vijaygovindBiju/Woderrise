@@ -49,7 +49,7 @@ woderrise/
 │   ├── woderrise-core/             # Core engine, WAL journal, solver, backups
 │   ├── woderrise-dbus/             # D-Bus IPC client & service definitions
 │   ├── woderrise-cli/              # Command-line interface and manifest linter
-│   ├── woderrise-gui/              # Libadwaita / GTK4 Wayland frontend
+│   ├── woderrise-gui/              # Ratatui / Crossterm terminal frontend
 │   └── woderrise-privhelper/       # Minimalist Polkit ALPM helper
 ├── tests/                          # Integration and fault-injection suites
 └── docs/                           # Architectural specifications

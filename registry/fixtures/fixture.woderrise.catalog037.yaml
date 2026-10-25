@@ -1,0 +1,14 @@
+schema_version: '1.0.0'
+package:
+  id: fixture.woderrise.catalog037
+  name: Woderrise Fixture 037
+  version: '1.0.37'
+  type: config
+  category: validation-fixture
+  license: MIT
+  authors:
+    - name: Woderrise test suite
+  description: Deterministic local validation fixture 037; not an upstream package.
+  tags: [fixture, validation, deterministic]
+install:
+  files: []
