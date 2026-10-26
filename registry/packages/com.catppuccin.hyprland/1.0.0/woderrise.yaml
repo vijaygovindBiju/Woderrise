@@ -1,0 +1,115 @@
+schema_version: '1.0.0'
+package:
+  id: com.catppuccin.hyprland
+  name: Catppuccin Wayland Hyprland Suite
+  version: '1.0.0'
+  type: config
+  category: desktop_setups
+  license: MIT
+  authors:
+    - name: Catppuccin contributors
+      url: https://github.com/catppuccin/hyprland
+  description: Authentic Catppuccin desktop configuration suite for Hyprland compositor, Hyprlock screen locker, Hypridle daemon, and companion status bar styling across Mocha, Macchiato, Frappe, and Latte palettes.
+  tags: [hyprland, catppuccin, mocha, macchiato, frappe, latte, wayland, config]
+  repository: https://github.com/catppuccin/hyprland
+previews:
+  thumbnail: artifacts/hyprland.conf
+  palette:
+    - { name: mocha_base, hex: '#1e1e2e' }
+    - { name: mocha_mauve, hex: '#cba6f7' }
+    - { name: mocha_blue, hex: '#89b4fa' }
+    - { name: mocha_text, hex: '#cdd6f4' }
+    - { name: macchiato_base, hex: '#24273a' }
+    - { name: macchiato_mauve, hex: '#c6a0f6' }
+    - { name: frappe_base, hex: '#303446' }
+    - { name: frappe_mauve, hex: '#ca9ee6' }
+    - { name: latte_base, hex: '#eff1f5' }
+    - { name: latte_mauve, hex: '#8839ef' }
+compatibility:
+  display_server: wayland_only
+  architectures: [x86_64, aarch64]
+  compositors:
+    - name: hyprland
+      version: '>=0.40.0'
+dependencies:
+  system:
+    - name: hyprland
+      version: '>=0.40.0'
+    - name: waybar
+    - name: hyprlock
+    - name: hypridle
+artifacts:
+  - path: artifacts/hyprland.conf
+    sha256: b33d36c1277d7742dd3879a5ea4ad03831f5bb3a6222bbd56e065ed461cc7a89
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/example/hyprland.conf
+  - path: artifacts/hyprlock.conf
+    sha256: 906365545171c8be5787aada9e5b142f254cbc5bd58f10f3ac99414650e0da04
+    url: https://raw.githubusercontent.com/catppuccin/hyprlock/main/hyprlock.conf
+  - path: artifacts/hypridle.conf
+    sha256: 63ee8f97bb992c573c8a2f36c7743b47ab8101ccc7ae7c8c908072ebb19bd396
+    url: https://raw.githubusercontent.com/catppuccin/hypridle/main/hypridle.conf
+  - path: artifacts/mocha.conf
+    sha256: ae5fe69d5e81959371d8eaca90b22c0da4c237586a2d65ab6df240b75047ad22
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/themes/mocha.conf
+  - path: artifacts/macchiato.conf
+    sha256: e530a4ff34ad5f2f1709efa4d1d6886aea43f352e661e79455e4b89a71d4835d
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/themes/macchiato.conf
+  - path: artifacts/frappe.conf
+    sha256: 83d18d62c0f7476675fc65df76a551e98f6374273e94b11a4e5439d6d059e956
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/themes/frappe.conf
+  - path: artifacts/latte.conf
+    sha256: 7fe2909baa3b4c0a0f48b3692569ee2a1b452f03674f74d316fd7979754ed532
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/themes/latte.conf
+  - path: artifacts/waybar-config.jsonc
+    sha256: c6cd1635aace0304f3a9ce496df6c8e996092aaa6167a4568e4db7b271a9899b
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/example/waybar/config.jsonc
+  - path: artifacts/waybar-style.css
+    sha256: 125976ae468562f9dce7e1b309fdc1621c51f0d3121e2a8e3cc93928f49828c5
+    url: https://raw.githubusercontent.com/catppuccin/hyprland/main/example/waybar/style.css
+install:
+  files:
+    - source: artifacts/hyprland.conf
+      target: ~/.config/hypr/hyprland.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/hyprlock.conf
+      target: ~/.config/hypr/hyprlock.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/hypridle.conf
+      target: ~/.config/hypr/hypridle.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/mocha.conf
+      target: ~/.config/hypr/mocha.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/macchiato.conf
+      target: ~/.config/hypr/macchiato.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/frappe.conf
+      target: ~/.config/hypr/frappe.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/latte.conf
+      target: ~/.config/hypr/latte.conf
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/waybar-config.jsonc
+      target: ~/.config/waybar/config.jsonc
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true
+    - source: artifacts/waybar-style.css
+      target: ~/.config/waybar/style.css
+      mode: '0644'
+      strategy: replace
+      backup_before_write: true

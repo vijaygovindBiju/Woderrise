@@ -1,0 +1,351 @@
+import { Theme } from "./theme.slint";
+
+component SettingsToggleRow inherits Rectangle {
+    in property <string> title: "";
+    in property <string> description: "";
+    in-out property <bool> checked: false;
+
+    callback toggled(bool);
+
+    height: 64px;
+    background: Theme.bg-surface0;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.bg-surface1;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        alignment: center;
+        spacing: 16px;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            alignment: center;
+
+            Text {
+                text: root.title;
+                font-size: Theme.font-size-body;
+                font-weight: 700;
+                color: Theme.text-main;
+            }
+
+            Text {
+                text: root.description;
+                font-size: Theme.font-size-xs;
+                color: Theme.text-dim;
+            }
+        }
+
+        // Toggle Switch
+        Rectangle {
+            width: 48px;
+            height: 26px;
+            border-radius: 13px;
+            background: root.checked ? Theme.accent-blue : Theme.bg-surface2;
+
+            // Slider Knob
+            Rectangle {
+                x: root.checked ? 24px : 2px;
+                y: 2px;
+                width: 22px;
+                height: 22px;
+                border-radius: 11px;
+                background: root.checked ? Theme.text-dark : Theme.text-main;
+                animate x { duration: 150ms; easing: ease-out; }
+            }
+
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.checked = !root.checked;
+                    root.toggled(root.checked);
+                }
+            }
+        }
+    }
+}
+
+component SettingsValueRow inherits Rectangle {
+    in property <string> title: "";
+    in property <string> description: "";
+    in property <string> value: "";
+    in property <bool> is-code: false;
+
+    height: 64px;
+    background: Theme.bg-surface0;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.bg-surface1;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        alignment: center;
+        spacing: 16px;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            alignment: center;
+
+            Text {
+                text: root.title;
+                font-size: Theme.font-size-body;
+                font-weight: 700;
+                color: Theme.text-main;
+            }
+
+            Text {
+                text: root.description;
+                font-size: Theme.font-size-xs;
+                color: Theme.text-dim;
+            }
+        }
+
+        Rectangle {
+            height: 28px;
+            border-radius: Theme.radius-xs;
+            background: Theme.bg-surface1;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                alignment: center;
+
+                Text {
+                    text: root.value;
+                    font-size: Theme.font-size-xs;
+                    font-family: root.is-code ? "monospace" : "";
+                    font-weight: 600;
+                    color: Theme.accent-teal;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component SettingsView inherits Rectangle {
+    in-out property <bool> auto-backup: true;
+    in-out property <bool> strict-hash: true;
+    in-out property <bool> offline-first: true;
+    in property <string> backup-dir: "~/.local/share/woderrise/backups";
+    in property <string> target-compositor: "Hyprland (Wayland)";
+    in property <string> target-shell: "Waybar (~/.config/waybar)";
+    in property <string> journal-path: "~/.local/share/woderrise/journal.db";
+    in property <int> total-transactions: 1;
+
+    callback setting-toggled(string, bool);
+    callback reindex-clicked();
+    callback restore-defaults-clicked();
+
+    background: Theme.bg-base;
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 18px;
+
+        // View Title
+        HorizontalLayout {
+            alignment: center;
+
+            Text {
+                horizontal-stretch: 1;
+                text: "Preferences & Configuration";
+                font-size: Theme.font-size-xl;
+                font-weight: 800;
+                color: Theme.text-main;
+            }
+
+            Rectangle {
+                border-radius: Theme.radius-xs;
+                background: Theme.accent-blue.with-alpha(0.18);
+                height: 26px;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    alignment: center;
+
+                    Text {
+                        text: "Active Configuration Profile";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 700;
+                        color: Theme.accent-blue;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        Flickable {
+            vertical-stretch: 1;
+            content-height: settings-content.min-height;
+
+            settings-content := VerticalLayout {
+                spacing: 20px;
+
+                // Section 1: Backup & Safety
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "BACKUP & RECOVERY SAFETY";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 800;
+                        color: Theme.accent-lavender;
+                        letter-spacing: 1.0px;
+                    }
+
+                    SettingsToggleRow {
+                        title: "Pre-Modification Atomic Backup";
+                        description: "Automatically snapshot existing target files into content-addressed backup store before modifying them.";
+                        checked <=> root.auto-backup;
+                        toggled(val) => { root.setting-toggled("auto_backup", val); }
+                    }
+
+                    SettingsValueRow {
+                        title: "Backup Directory Store";
+                        description: "Content-addressed SHA-256 backup storage location.";
+                        value: root.backup-dir;
+                        is-code: true;
+                    }
+                }
+
+                // Section 2: Integrity & Network
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "INTEGRITY & REGISTRY RESOLUTION";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 800;
+                        color: Theme.accent-peach;
+                        letter-spacing: 1.0px;
+                    }
+
+                    SettingsToggleRow {
+                        title: "Strict SHA-256 Cryptographic Verification";
+                        description: "Enforce exact SHA-256 validation of package artifacts against manifest hashes prior to extraction.";
+                        checked <=> root.strict-hash;
+                        toggled(val) => { root.setting-toggled("strict_hash", val); }
+                    }
+
+                    SettingsToggleRow {
+                        title: "Offline Cache First";
+                        description: "Prefer local cached registry manifests and artifacts without stalling on network disconnects.";
+                        checked <=> root.offline-first;
+                        toggled(val) => { root.setting-toggled("offline_first", val); }
+                    }
+                }
+
+                // Section 3: Environment Defaults
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "ENVIRONMENT TARGETS & ROUTING";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 800;
+                        color: Theme.accent-mauve;
+                        letter-spacing: 1.0px;
+                    }
+
+                    SettingsValueRow {
+                        title: "Default Compositor Target";
+                        description: "Primary Wayland compositor for configuration file layout and reload triggers.";
+                        value: root.target-compositor;
+                        is-code: false;
+                    }
+
+                    SettingsValueRow {
+                        title: "Default Shell / Bar Destination";
+                        description: "System destination directory for desktop bar and panel modules.";
+                        value: root.target-shell;
+                        is-code: false;
+                    }
+                }
+
+                // Section 4: Journal Storage & Operations
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "STORAGE & JOURNAL DATABASE";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 800;
+                        color: Theme.accent-green;
+                        letter-spacing: 1.0px;
+                    }
+
+                    SettingsValueRow {
+                        title: "SQLite Transaction Journal";
+                        description: "WAL-mode transactional database recording all package installations and rollback states.";
+                        value: root.journal-path;
+                        is-code: true;
+                    }
+
+                    SettingsValueRow {
+                        title: "Committed Transactions";
+                        description: "Total recorded atomic transactions stored in journal.";
+                        value: root.total-transactions + " transaction(s) recorded";
+                        is-code: false;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        padding-top: 8px;
+
+                        // Re-index Registry Button
+                        Rectangle {
+                            height: 38px;
+                            horizontal-stretch: 1;
+                            border-radius: Theme.radius-sm;
+                            background: reindex-touch.has-hover ? Theme.accent-blue.brighter(0.15) : Theme.accent-blue;
+
+                            Text {
+                                text: "Re-index Local Registry";
+                                font-size: Theme.font-size-body;
+                                font-weight: 700;
+                                color: Theme.text-dark;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            reindex-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.reindex-clicked(); }
+                            }
+                        }
+
+                        // Restore Defaults Button
+                        Rectangle {
+                            height: 38px;
+                            horizontal-stretch: 1;
+                            border-radius: Theme.radius-sm;
+                            background: defaults-touch.has-hover ? Theme.bg-surface1 : Theme.bg-surface0;
+                            border-width: 1px;
+                            border-color: Theme.bg-surface1;
+
+                            Text {
+                                text: "Reset Preferences to Default";
+                                font-size: Theme.font-size-body;
+                                font-weight: 600;
+                                color: Theme.text-main;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            defaults-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.restore-defaults-clicked(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

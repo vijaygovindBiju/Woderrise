@@ -1,0 +1,449 @@
+import { Theme, PaletteSwatchData } from "./theme.slint";
+
+component PaletteSwatchItem inherits Rectangle {
+    in property <PaletteSwatchData> swatch;
+
+    height: 72px;
+    background: Theme.bg-surface0;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.bg-surface1;
+
+    HorizontalLayout {
+        padding: 8px;
+        spacing: 12px;
+        alignment: center;
+
+        // Color block
+        Rectangle {
+            width: 44px;
+            height: 44px;
+            border-radius: Theme.radius-xs;
+            background: root.swatch.color;
+            border-width: 1px;
+            border-color: Theme.bg-surface2;
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+            alignment: center;
+
+            Text {
+                text: root.swatch.name;
+                font-size: Theme.font-size-body;
+                font-weight: 700;
+                color: Theme.text-main;
+            }
+
+            Text {
+                text: root.swatch.hex;
+                font-size: Theme.font-size-xs;
+                font-family: "monospace";
+                color: Theme.text-dim;
+            }
+        }
+    }
+}
+
+component ActionButton inherits Rectangle {
+    in property <string> label: "";
+    in property <color> btn-bg: Theme.accent-blue;
+    in property <color> btn-fg: Theme.text-dark;
+    in property <bool> is-disabled: false;
+
+    callback clicked();
+
+    height: 38px;
+    border-radius: Theme.radius-sm;
+    background: root.is-disabled ? Theme.bg-surface1 : (touch.has-hover ? root.btn-bg.brighter(0.15) : root.btn-bg);
+    opacity: root.is-disabled ? 0.6 : 1.0;
+
+    Text {
+        text: root.label;
+        font-size: Theme.font-size-body;
+        font-weight: 700;
+        color: root.is-disabled ? Theme.text-dim : root.btn-fg;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: root.is-disabled ? default : pointer;
+        clicked => {
+            if !root.is-disabled {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component PackageDetail inherits Rectangle {
+    in property <string> pkg-id: "";
+    in property <string> pkg-name: "";
+    in property <string> pkg-version: "";
+    in property <string> pkg-category: "";
+    in property <string> pkg-license: "";
+    in property <string> pkg-maintainer: "";
+    in property <string> pkg-repo-url: "";
+    in property <string> pkg-description: "";
+    in property <string> pkg-display-server: "";
+    in property <string> pkg-architectures: "";
+    in property <string> pkg-target-path: "";
+    in property <bool> pkg-installed: false;
+    in property <[PaletteSwatchData]> palette-swatches: [];
+    in property <bool> has-selection: true;
+
+    callback install-clicked();
+    callback diff-clicked();
+    callback rollback-clicked();
+
+    background: Theme.bg-base;
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        if !root.has-selection : Rectangle {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 10px;
+
+                Text {
+                    text: "Select a package to inspect";
+                    font-size: Theme.font-size-lg;
+                    color: Theme.text-muted;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: "Choose a package from the catalog on the left to view metadata and diff preview.";
+                    font-size: Theme.font-size-sm;
+                    color: Theme.text-dim;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        if root.has-selection : VerticalLayout {
+            spacing: 16px;
+
+            // Hero Header Card
+            Rectangle {
+                background: Theme.bg-mantle;
+                border-radius: Theme.radius-md;
+                border-width: 1px;
+                border-color: Theme.bg-surface0;
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+
+                    // Name and Badges
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: center;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.pkg-name;
+                            font-size: Theme.font-size-xl;
+                            font-weight: 800;
+                            color: Theme.text-main;
+                        }
+
+                        // Version Badge
+                        Rectangle {
+                            border-radius: Theme.radius-xs;
+                            background: Theme.accent-mauve.with-alpha(0.2);
+                            height: 24px;
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                alignment: center;
+
+                                Text {
+                                    text: "v" + root.pkg-version;
+                                    font-size: Theme.font-size-sm;
+                                    font-weight: 700;
+                                    color: Theme.accent-mauve;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Installed / Available Badge
+                        Rectangle {
+                            border-radius: Theme.radius-pill;
+                            background: root.pkg-installed ? Theme.accent-green.with-alpha(0.18) : Theme.accent-blue.with-alpha(0.18);
+                            height: 24px;
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Rectangle {
+                                    width: 6px;
+                                    height: 6px;
+                                    border-radius: 3px;
+                                    background: root.pkg-installed ? Theme.accent-green : Theme.accent-blue;
+                                }
+
+                                Text {
+                                    text: root.pkg-installed ? "Installed" : "Available";
+                                    font-size: Theme.font-size-xs;
+                                    font-weight: 700;
+                                    color: root.pkg-installed ? Theme.accent-green : Theme.accent-blue;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Package ID
+                    Text {
+                        text: root.pkg-id;
+                        font-size: Theme.font-size-sm;
+                        color: Theme.accent-blue;
+                        font-family: "monospace";
+                    }
+
+                    // Description
+                    Text {
+                        text: root.pkg-description;
+                        font-size: Theme.font-size-body;
+                        color: Theme.text-sub;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // Action Buttons Bar
+            HorizontalLayout {
+                spacing: 12px;
+
+                ActionButton {
+                    horizontal-stretch: 2;
+                    label: root.pkg-installed ? "Installed ✓" : "Install Package";
+                    btn-bg: root.pkg-installed ? Theme.bg-surface1 : Theme.accent-blue;
+                    btn-fg: root.pkg-installed ? Theme.text-dim : Theme.text-dark;
+                    is-disabled: root.pkg-installed;
+                    clicked => { root.install-clicked(); }
+                }
+
+                ActionButton {
+                    horizontal-stretch: 2;
+                    label: "Diff Preview";
+                    btn-bg: Theme.accent-mauve;
+                    btn-fg: Theme.text-dark;
+                    is-disabled: false;
+                    clicked => { root.diff-clicked(); }
+                }
+
+                if root.pkg-installed : ActionButton {
+                    horizontal-stretch: 1;
+                    label: "Rollback";
+                    btn-bg: Theme.accent-red;
+                    btn-fg: Theme.text-dark;
+                    is-disabled: false;
+                    clicked => { root.rollback-clicked(); }
+                }
+            }
+
+            // Scrollable Metadata Sections
+            Flickable {
+                vertical-stretch: 1;
+                content-height: meta-layout.min-height;
+
+                meta-layout := VerticalLayout {
+                    spacing: 16px;
+
+                    // Provenance & Maintainer Card
+                    Rectangle {
+                        background: Theme.bg-surface0;
+                        border-radius: Theme.radius-md;
+                        border-width: 1px;
+                        border-color: Theme.bg-surface1;
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 10px;
+
+                            Text {
+                                text: "PROVENANCE & METADATA";
+                                font-size: Theme.font-size-xs;
+                                font-weight: 800;
+                                color: Theme.accent-lavender;
+                                letter-spacing: 1.0px;
+                            }
+
+                            HorizontalLayout {
+                                Text {
+                                    width: 130px;
+                                    text: "Maintainer:";
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-dim;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.pkg-maintainer;
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-main;
+                                    overflow: elide;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                Text {
+                                    width: 130px;
+                                    text: "Upstream Source:";
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-dim;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.pkg-repo-url;
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.accent-teal;
+                                    font-family: "monospace";
+                                    overflow: elide;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                Text {
+                                    width: 130px;
+                                    text: "License:";
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-dim;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.pkg-license;
+                                    font-size: Theme.font-size-sm;
+                                    font-weight: 700;
+                                    color: Theme.text-main;
+                                }
+                            }
+                        }
+                    }
+
+                    // Desktop Compatibility Card
+                    Rectangle {
+                        background: Theme.bg-surface0;
+                        border-radius: Theme.radius-md;
+                        border-width: 1px;
+                        border-color: Theme.bg-surface1;
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 10px;
+
+                            Text {
+                                text: "COMPATIBILITY & TARGETS";
+                                font-size: Theme.font-size-xs;
+                                font-weight: 800;
+                                color: Theme.accent-peach;
+                                letter-spacing: 1.0px;
+                            }
+
+                            HorizontalLayout {
+                                Text {
+                                    width: 130px;
+                                    text: "Display Server:";
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-dim;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.pkg-display-server;
+                                    font-size: Theme.font-size-sm;
+                                    font-weight: 600;
+                                    color: Theme.accent-green;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                Text {
+                                    width: 130px;
+                                    text: "Architectures:";
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-dim;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.pkg-architectures;
+                                    font-size: Theme.font-size-sm;
+                                    font-family: "monospace";
+                                    color: Theme.text-sub;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                Text {
+                                    width: 130px;
+                                    text: "Target Config:";
+                                    font-size: Theme.font-size-sm;
+                                    color: Theme.text-dim;
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.pkg-target-path;
+                                    font-size: Theme.font-size-sm;
+                                    font-family: "monospace";
+                                    color: Theme.accent-sky;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+
+                    // Genuine Palette Swatches Card
+                    if root.palette-swatches.length > 0 : Rectangle {
+                        background: Theme.bg-surface0;
+                        border-radius: Theme.radius-md;
+                        border-width: 1px;
+                        border-color: Theme.bg-surface1;
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 12px;
+
+                            Text {
+                                text: "GENUINE COLOR PALETTE (" + root.palette-swatches.length + " COLORS)";
+                                font-size: Theme.font-size-xs;
+                                font-weight: 800;
+                                color: Theme.accent-mauve;
+                                letter-spacing: 1.0px;
+                            }
+
+                            Flickable {
+                                height: 76px;
+                                content-width: root.palette-swatches.length * 150px;
+
+                                HorizontalLayout {
+                                    spacing: 10px;
+
+                                    for swatch in root.palette-swatches : PaletteSwatchItem {
+                                        width: 140px;
+                                        swatch: swatch;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -5,6 +5,7 @@ members = [
     "crates/woderrise-dbus",
     "crates/woderrise-gui",
     "crates/woderrise-privhelper",
+    "crates/woderrise-desktop",
 ]
 resolver = "2"
 
@@ -12,3 +13,6 @@ resolver = "2"
 edition = "2021"
 license = "MIT"
 version = "0.1.0"
+
+[patch.crates-io]
+annotate-snippets = { path = "crates/woderrise-desktop/vendor/annotate-snippets" }

@@ -1,0 +1,313 @@
+import { Theme, NavTab } from "./theme.slint";
+
+component NavItem inherits Rectangle {
+    in property <string> icon: "";
+    in property <string> label: "";
+    in property <bool> is-active: false;
+    in property <string> badge-text: "";
+
+    callback clicked();
+
+    height: 42px;
+    border-radius: Theme.radius-sm;
+    background: root.is-active ? Theme.bg-surface1 : (touch.has-hover ? Theme.bg-surface0 : #00000000);
+
+    // Left active indicator accent bar
+    Rectangle {
+        x: 0px;
+        y: 8px;
+        width: 3px;
+        height: 26px;
+        border-radius: 1.5px;
+        background: root.is-active ? Theme.accent-blue : #00000000;
+    }
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 14px;
+        spacing: 12px;
+        alignment: center;
+
+        // Icon
+        Text {
+            width: 22px;
+            text: root.icon;
+            font-size: Theme.font-size-md;
+            color: root.is-active ? Theme.accent-blue : (touch.has-hover ? Theme.text-main : Theme.text-dim);
+            vertical-alignment: center;
+        }
+
+        // Label
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            font-size: Theme.font-size-body;
+            font-weight: root.is-active ? 700 : 500;
+            color: root.is-active ? Theme.text-main : (touch.has-hover ? Theme.text-main : Theme.text-muted);
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // Optional badge counter
+        if root.badge-text != "" : Rectangle {
+            width: 22px;
+            height: 18px;
+            border-radius: Theme.radius-xs;
+            background: root.is-active ? Theme.accent-blue.with-alpha(0.2) : Theme.bg-surface2;
+
+            Text {
+                text: root.badge-text;
+                font-size: Theme.font-size-xs;
+                font-weight: 700;
+                color: root.is-active ? Theme.accent-blue : Theme.text-sub;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    in-out property <NavTab> current-tab: NavTab.browse;
+    in property <string> connection-status: "Online";
+    in property <string> package-count-label: "1 Verified Package";
+    in property <string> journal-status-label: "SQLite WAL • Active";
+    in property <int> installed-count: 0;
+
+    callback tab-selected(NavTab);
+    callback open-import-dialog();
+
+    width: 240px;
+    background: Theme.bg-mantle;
+    border-color: Theme.bg-surface0;
+    border-width: 1px;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 16px;
+
+        // Top Brand Header
+        Rectangle {
+            height: 52px;
+            background: Theme.bg-crust;
+            border-radius: Theme.radius-md;
+            border-color: Theme.bg-surface0;
+            border-width: 1px;
+
+            HorizontalLayout {
+                padding: 10px;
+                spacing: 10px;
+                alignment: center;
+
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: Theme.radius-sm;
+                    background: Theme.accent-blue.with-alpha(0.18);
+
+                    Text {
+                        text: "⬡";
+                        font-size: 18px;
+                        color: Theme.accent-blue;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+                    alignment: center;
+
+                    Text {
+                        text: "WODERRISE";
+                        font-size: 14px;
+                        font-weight: 800;
+                        color: Theme.text-main;
+                        letter-spacing: 1.2px;
+                    }
+
+                    Text {
+                        text: "DESKTOP CONFIG MANAGER";
+                        font-size: 8px;
+                        font-weight: 700;
+                        color: Theme.text-dim;
+                        letter-spacing: 0.8px;
+                    }
+                }
+            }
+        }
+
+        // Navigation Menu (7 items)
+        VerticalLayout {
+            spacing: 4px;
+
+            NavItem {
+                icon: "⌂";
+                label: "Home";
+                is-active: root.current-tab == NavTab.home;
+                clicked => {
+                    root.current-tab = NavTab.home;
+                    root.tab-selected(NavTab.home);
+                }
+            }
+
+            NavItem {
+                icon: "⌕";
+                label: "Browse";
+                is-active: root.current-tab == NavTab.browse;
+                clicked => {
+                    root.current-tab = NavTab.browse;
+                    root.tab-selected(NavTab.browse);
+                }
+            }
+
+            NavItem {
+                icon: "▦";
+                label: "Categories";
+                is-active: root.current-tab == NavTab.categories;
+                clicked => {
+                    root.current-tab = NavTab.categories;
+                    root.tab-selected(NavTab.categories);
+                }
+            }
+
+            NavItem {
+                icon: "▣";
+                label: "Installed";
+                is-active: root.current-tab == NavTab.installed;
+                badge-text: root.installed-count > 0 ? (root.installed-count + "") : "";
+                clicked => {
+                    root.current-tab = NavTab.installed;
+                    root.tab-selected(NavTab.installed);
+                }
+            }
+
+            NavItem {
+                icon: "↻";
+                label: "Updates";
+                is-active: root.current-tab == NavTab.updates;
+                clicked => {
+                    root.current-tab = NavTab.updates;
+                    root.tab-selected(NavTab.updates);
+                }
+            }
+
+            NavItem {
+                icon: "▰";
+                label: "Registry";
+                is-active: root.current-tab == NavTab.registry;
+                clicked => {
+                    root.current-tab = NavTab.registry;
+                    root.tab-selected(NavTab.registry);
+                }
+            }
+
+            NavItem {
+                icon: "⚙";
+                label: "Settings";
+                is-active: root.current-tab == NavTab.settings;
+                clicked => {
+                    root.current-tab = NavTab.settings;
+                    root.tab-selected(NavTab.settings);
+                }
+            }
+        }
+
+        // Import GitHub Action Button
+        Rectangle {
+            height: 38px;
+            border-radius: Theme.radius-sm;
+            background: import-touch.has-hover ? Theme.accent-mauve.brighter(0.15) : Theme.accent-mauve;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 8px;
+                alignment: center;
+
+                Text {
+                    text: "↓";
+                    font-size: Theme.font-size-md;
+                    font-weight: 700;
+                    color: Theme.text-dark;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "Import GitHub...";
+                    font-size: Theme.font-size-body;
+                    font-weight: 700;
+                    color: Theme.text-dark;
+                    vertical-alignment: center;
+                }
+            }
+
+            import-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-import-dialog(); }
+            }
+        }
+
+        // Flexible spacer
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        // Bottom Status Block
+        Rectangle {
+            background: Theme.bg-crust;
+            border-radius: Theme.radius-md;
+            border-color: Theme.bg-surface0;
+            border-width: 1px;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                // Network / Local Cache indicator
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: center;
+
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: root.connection-status == "Online" ? Theme.accent-green : Theme.accent-yellow;
+                    }
+
+                    Text {
+                        text: root.connection-status == "Online" ? "ONLINE (VERIFIED)" : "OFFLINE LOCAL CACHE";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 700;
+                        color: root.connection-status == "Online" ? Theme.accent-green : Theme.accent-yellow;
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.bg-surface0;
+                }
+
+                Text {
+                    text: root.package-count-label;
+                    font-size: Theme.font-size-xs;
+                    color: Theme.text-muted;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: root.journal-status-label;
+                    font-size: Theme.font-size-xs;
+                    color: Theme.text-dim;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+}

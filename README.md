@@ -24,14 +24,14 @@ Woderrise transforms this workflow into an intuitive, modern application store e
 | :--- | :--- | :--- |
 | **System Architecture & Technical Specs** | ✅ **Documented** | Full architectural blueprints, data models, IPC, and security specifications completed. |
 | **Package Manifest & Schema Specs** | ✅ **Documented** | Manifest v1 specification with JSON schemas and examples established. |
-| **Installation Engine Core** | 🟡 **Planned (Milestone 1)** | Core transaction engine, SQLite WAL journaling, and rollback implementation pending. |
+| **Installation Engine Core** | ✅ **Available** | Validated manifests, artifact hashes, SQLite WAL journaling, backups, installation, and rollback. |
 | **D-Bus Daemon (`woderised`)** | 🟡 **Planned (Milestone 2)** | System/session IPC broker and privilege isolation pending. |
 | **Terminal Frontend (`woderrise-gui`)** | ✅ **Available** | Ratatui + Crossterm terminal interface for catalog and package workflows. |
-| **Community Registry & Indexer** | 🟡 **Planned (Milestone 4)** | Git-backed, content-addressed package registry pending. |
+| **Community Registry & Indexer** | 🟡 **Available locally** | Versioned manifests and verified artifacts are indexed locally; optional HTTPS GitHub registry sync and JSONL sharding remain separate roadmap items. |
 
 > [!NOTE]
-> **Current Phase: Documentation & Architectural Foundation.**
-> No application source code has been committed yet. This repository currently hosts the complete technical specification to enable reliable, incremental implementation.
+> **Current Phase: Trustworthy local catalog and TUI workflows.**
+> The terminal application reads validated package manifests from `registry/packages` or an optional configured GitHub registry cache. It does not treat arbitrary GitHub repositories as packages.
 
 ---
 

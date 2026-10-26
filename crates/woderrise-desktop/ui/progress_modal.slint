@@ -1,0 +1,135 @@
+import { Theme } from "./theme.slint";
+
+export component ProgressModal inherits Rectangle {
+    in property <string> title: "Installing Package...";
+    in property <string> stage: "Resolve";
+    in property <string> message: "Resolving package manifest...";
+    in property <float> fraction: 0.0;
+
+    background: #11111be0; // darkened modal backdrop
+
+    // Dialog Card
+    Rectangle {
+        width: 520px;
+        height: 250px;
+        background: Theme.bg-mantle;
+        border-radius: Theme.radius-lg;
+        border-width: 1.5px;
+        border-color: Theme.accent-blue;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            alignment: center;
+
+            // Operation Title & Stage Pill
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.title;
+                    font-size: Theme.font-size-lg;
+                    font-weight: 800;
+                    color: Theme.text-main;
+                    overflow: elide;
+                }
+
+                Rectangle {
+                    border-radius: Theme.radius-xs;
+                    background: Theme.accent-mauve.with-alpha(0.2);
+                    height: 24px;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        alignment: center;
+
+                        Text {
+                            text: "Stage: " + root.stage;
+                            font-size: Theme.font-size-xs;
+                            font-weight: 700;
+                            color: Theme.accent-mauve;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Granular Message Description
+            Rectangle {
+                height: 48px;
+                background: Theme.bg-surface0;
+                border-radius: Theme.radius-sm;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 10px;
+                    alignment: center;
+
+                    // Activity indicator dot
+                    Rectangle {
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: Theme.accent-blue;
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.message;
+                        font-size: Theme.font-size-body;
+                        color: Theme.text-sub;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Progress Bar Section
+            VerticalLayout {
+                spacing: 8px;
+
+                // Track
+                Rectangle {
+                    height: 10px;
+                    background: Theme.bg-surface0;
+                    border-radius: 5px;
+                    clip: true;
+
+                    // Fill indicator
+                    Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: root.fraction * parent.width;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: Theme.accent-blue;
+                    }
+                }
+
+                // Progress Info Row
+                HorizontalLayout {
+                    alignment: center;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Transactional safety verified • Atomic file swapping";
+                        font-size: Theme.font-size-xs;
+                        color: Theme.text-dim;
+                    }
+
+                    Text {
+                        text: Math.round(root.fraction * 100) + "%";
+                        font-size: Theme.font-size-sm;
+                        font-weight: 700;
+                        font-family: "monospace";
+                        color: Theme.accent-blue;
+                    }
+                }
+            }
+        }
+    }
+}

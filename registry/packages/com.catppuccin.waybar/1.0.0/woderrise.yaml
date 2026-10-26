@@ -12,6 +12,13 @@ package:
   description: Catppuccin Mocha color definitions for Waybar.
   tags: [waybar, theme, catppuccin, mocha]
   repository: https://github.com/catppuccin/waybar
+previews:
+  thumbnail: artifacts/mocha.css
+  palette:
+    - { name: base, hex: '#1e1e2e' }
+    - { name: blue, hex: '#89b4fa' }
+    - { name: mauve, hex: '#cba6f7' }
+    - { name: text, hex: '#cdd6f4' }
 compatibility:
   display_server: wayland_only
   architectures: [x86_64, aarch64]

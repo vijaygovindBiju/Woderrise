@@ -15,3 +15,12 @@ community provenance, and are excluded from the installable package index.
 `packages/` contains the small installable catalog. Its current entry is the
 Catppuccin Waybar Mocha theme, pinned to an upstream commit and backed by a
 locally stored artifact whose SHA-256 is verified during import.
+
+The TUI uses this directory by default. A GitHub-hosted registry can be
+configured with `WODERRISE_REGISTRY_URL=https://github.com/<owner>/<repo>`.
+Refresh clones or fetches that repository into the local Woderrise cache,
+imports its `packages/` tree transactionally, and keeps the last valid SQLite
+catalog available if the network or validation fails. Only HTTPS GitHub
+repositories are accepted by this sync path; arbitrary GitHub repositories are
+not treated as trusted packages without valid Woderrise manifests and verified
+artifacts.

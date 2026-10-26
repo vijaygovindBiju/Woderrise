@@ -1,0 +1,352 @@
+import { Theme, DiffLineData } from "./theme.slint";
+
+component DiffLineView inherits Rectangle {
+    in property <DiffLineData> line;
+
+    height: 22px;
+    background: root.line.kind == "addition" ? Theme.diff-add-bg :
+                (root.line.kind == "deletion" ? Theme.diff-del-bg : Theme.diff-context-bg);
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        alignment: center;
+
+        // Left line number (target/original)
+        Text {
+            width: 36px;
+            text: root.line.left_num;
+            font-size: Theme.font-size-xs;
+            font-family: "monospace";
+            color: Theme.text-dim;
+            horizontal-alignment: right;
+        }
+
+        // Right line number (source/new)
+        Text {
+            width: 36px;
+            text: root.line.right_num;
+            font-size: Theme.font-size-xs;
+            font-family: "monospace";
+            color: Theme.text-dim;
+            horizontal-alignment: right;
+        }
+
+        // Diff marker (+, -, or space)
+        Text {
+            width: 14px;
+            text: root.line.kind == "addition" ? "+" : (root.line.kind == "deletion" ? "-" : " ");
+            font-size: Theme.font-size-xs;
+            font-weight: 700;
+            font-family: "monospace";
+            color: root.line.kind == "addition" ? Theme.accent-green :
+                   (root.line.kind == "deletion" ? Theme.accent-red : Theme.text-dim);
+            horizontal-alignment: center;
+        }
+
+        // Line content text
+        Text {
+            horizontal-stretch: 1;
+            text: root.line.text;
+            font-size: Theme.font-size-xs;
+            font-family: "monospace";
+            color: root.line.kind == "addition" ? Theme.accent-green :
+                   (root.line.kind == "deletion" ? Theme.accent-red : Theme.text-main);
+            overflow: elide;
+        }
+    }
+}
+
+export component DiffModal inherits Rectangle {
+    in property <string> package-id: "";
+    in property <string> package-version: "";
+    in property <string> target-path: "";
+    in property <string> backup-path: "";
+    in property <string> action-type: "Create";
+    in property <int> additions-count: 0;
+    in property <int> deletions-count: 0;
+    in property <[DiffLineData]> diff-lines: [];
+    in property <bool> can-install: true;
+
+    callback close-clicked();
+    callback apply-install-clicked();
+
+    background: #11111bbf; // semi-transparent backdrop
+
+    // Modal dialog window
+    Rectangle {
+        width: 880px;
+        height: 620px;
+        background: Theme.bg-mantle;
+        border-radius: Theme.radius-lg;
+        border-width: 1px;
+        border-color: Theme.bg-surface2;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+
+            // Header Row
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: center;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Source vs Target Diff Preview";
+                    font-size: Theme.font-size-lg;
+                    font-weight: 800;
+                    color: Theme.text-main;
+                }
+
+                Rectangle {
+                    border-radius: Theme.radius-xs;
+                    background: Theme.bg-surface0;
+                    height: 24px;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        alignment: center;
+
+                        Text {
+                            text: root.package-id + " v" + root.package-version;
+                            font-size: Theme.font-size-xs;
+                            font-family: "monospace";
+                            color: Theme.accent-mauve;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Close X Button
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: Theme.radius-sm;
+                    background: close-touch.has-hover ? Theme.bg-surface1 : Theme.bg-surface0;
+
+                    Text {
+                        text: "✕";
+                        font-size: 13px;
+                        color: close-touch.has-hover ? Theme.accent-red : Theme.text-dim;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    close-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.close-clicked(); }
+                    }
+                }
+            }
+
+            // Impact & Backup Details Card
+            Rectangle {
+                background: Theme.bg-surface0;
+                border-radius: Theme.radius-md;
+                border-width: 1px;
+                border-color: Theme.bg-surface1;
+
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text {
+                            width: 110px;
+                            text: "Target Destination:";
+                            font-size: Theme.font-size-xs;
+                            color: Theme.text-dim;
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.target-path;
+                            font-size: Theme.font-size-xs;
+                            font-family: "monospace";
+                            font-weight: 600;
+                            color: Theme.accent-teal;
+                            overflow: elide;
+                        }
+
+                        // Action badge (CREATE / MODIFY / UNCHANGED)
+                        Rectangle {
+                            height: 22px;
+                            border-radius: Theme.radius-xs;
+                            background: root.action-type == "Create" ? Theme.accent-green.with-alpha(0.2) :
+                                        (root.action-type == "Modify" ? Theme.accent-yellow.with-alpha(0.2) : Theme.bg-surface2);
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                alignment: center;
+
+                                Text {
+                                    text: root.action-type;
+                                    font-size: Theme.font-size-xs;
+                                    font-weight: 800;
+                                    color: root.action-type == "Create" ? Theme.accent-green :
+                                           (root.action-type == "Modify" ? Theme.accent-yellow : Theme.text-sub);
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text {
+                            width: 110px;
+                            text: "Planned Backup:";
+                            font-size: Theme.font-size-xs;
+                            color: Theme.text-dim;
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.backup-path;
+                            font-size: Theme.font-size-xs;
+                            font-family: "monospace";
+                            color: Theme.accent-sky;
+                            overflow: elide;
+                        }
+
+                        // Line additions / deletions counters
+                        HorizontalLayout {
+                            spacing: 6px;
+
+                            Text {
+                                text: "+" + root.additions-count;
+                                font-size: Theme.font-size-xs;
+                                font-weight: 700;
+                                font-family: "monospace";
+                                color: Theme.accent-green;
+                            }
+
+                            Text {
+                                text: "-" + root.deletions-count;
+                                font-size: Theme.font-size-xs;
+                                font-weight: 700;
+                                font-family: "monospace";
+                                color: Theme.accent-red;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Diff Lines Viewport
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.bg-crust;
+                border-radius: Theme.radius-md;
+                border-width: 1px;
+                border-color: Theme.bg-surface0;
+                clip: true;
+
+                Flickable {
+                    content-height: diff-lines-layout.min-height;
+
+                    diff-lines-layout := VerticalLayout {
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+
+                        if root.diff-lines.length == 0 : Rectangle {
+                            height: 120px;
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                Text {
+                                    text: "No diff changes detected";
+                                    font-size: Theme.font-size-body;
+                                    color: Theme.text-dim;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Target file is identical to incoming package payload.";
+                                    font-size: Theme.font-size-xs;
+                                    color: Theme.text-dim;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                        }
+
+                        for line in root.diff-lines : DiffLineView {
+                            line: line;
+                        }
+                    }
+                }
+            }
+
+            // Footer Actions
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Content-addressed backup will be created in ~/.local/share/woderrise/backups prior to write.";
+                    font-size: Theme.font-size-xs;
+                    color: Theme.text-dim;
+                    vertical-alignment: center;
+                }
+
+                // Close Button
+                Rectangle {
+                    width: 110px;
+                    height: 36px;
+                    border-radius: Theme.radius-sm;
+                    background: btn-close-touch.has-hover ? Theme.bg-surface1 : Theme.bg-surface0;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface1;
+
+                    Text {
+                        text: "Close Diff";
+                        font-size: Theme.font-size-body;
+                        font-weight: 600;
+                        color: Theme.text-main;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    btn-close-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.close-clicked(); }
+                    }
+                }
+
+                // Proceed to Install Button (if not already installed)
+                if root.can-install : Rectangle {
+                    width: 160px;
+                    height: 36px;
+                    border-radius: Theme.radius-sm;
+                    background: btn-inst-touch.has-hover ? Theme.accent-blue.brighter(0.15) : Theme.accent-blue;
+
+                    Text {
+                        text: "Apply & Install";
+                        font-size: Theme.font-size-body;
+                        font-weight: 700;
+                        color: Theme.text-dark;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    btn-inst-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.apply-install-clicked(); }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -4,10 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[dependencies]
-woderrise-core = { path = "../woderrise-core" }
-clap = { version = "4", features = ["derive"] }
+[lib]
+name = "woderrise_cli"
+path = "src/lib.rs"
 
 [[bin]]
 name = "woderrise"
 path = "src/main.rs"
+
+[dependencies]
+woderrise-core = { path = "../woderrise-core" }
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

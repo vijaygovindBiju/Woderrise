@@ -3,6 +3,9 @@ use rusqlite::params;
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,9 +95,13 @@ pub fn import_registry(db: &Database, root: impl AsRef<Path>) -> Result<usize> {
             root.as_ref().display()
         )));
     }
+
     let tx = db.conn.unchecked_transaction()?;
     tx.execute("DELETE FROM catalog", [])?;
-    tx.execute("DELETE FROM catalog_fts", [])?;
+    tx.execute(
+        "INSERT INTO catalog_fts(catalog_fts) VALUES('delete-all')",
+        [],
+    )?;
     for path in &entries {
         let entry = load_entry(path)?;
         if entry.yanked {
@@ -129,6 +136,90 @@ pub fn import_registry(db: &Database, root: impl AsRef<Path>) -> Result<usize> {
     }
     tx.commit()?;
     Ok(entries.len())
+}
+
+/// Synchronize a configured GitHub registry into a local cache.
+///
+/// The registry remains an ordinary versioned directory tree; importing it is
+/// still performed by `import_registry`, which validates manifests and bytes
+/// before replacing the SQLite index.
+pub fn sync_git_registry(source: &str, cache_dir: impl AsRef<Path>) -> Result<PathBuf> {
+    if !(source.starts_with("https://github.com/") && !source.contains(char::is_whitespace)) {
+        return Err(WoderriseError::Registry(
+            "registry source must be an HTTPS GitHub repository URL".into(),
+        ));
+    }
+    let cache_dir = cache_dir.as_ref();
+    if cache_dir.exists() && !cache_dir.join(".git").is_dir() {
+        return Err(WoderriseError::Registry(format!(
+            "registry cache is not a Git repository: {}",
+            cache_dir.display()
+        )));
+    }
+    if let Some(parent) = cache_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let existing = cache_dir.join(".git").is_dir();
+    let cache_string = cache_dir.to_string_lossy().into_owned();
+    let mut command = if existing {
+        let mut command = Command::new("git");
+        command.args(["-C", &cache_string, "fetch", "--depth", "1", "origin"]);
+        command
+    } else {
+        let mut command = Command::new("git");
+        command.args([
+            "clone",
+            "--depth",
+            "1",
+            "--filter=blob:none",
+            source,
+            &cache_string,
+        ]);
+        command
+    };
+    run_bounded(&mut command, Duration::from_secs(30))?;
+    if existing {
+        let mut reset = Command::new("git");
+        reset.args(["-C", &cache_string, "reset", "--hard", "FETCH_HEAD"]);
+        run_bounded(&mut reset, Duration::from_secs(10))?;
+    }
+    let packages = cache_dir.join("packages");
+    Ok(if packages.is_dir() {
+        packages
+    } else {
+        cache_dir.to_path_buf()
+    })
+}
+
+fn run_bounded(command: &mut Command, timeout: Duration) -> Result<()> {
+    command.stdout(Stdio::null()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| WoderriseError::Registry(format!("could not start git: {error}")))?;
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if status.success() {
+                return Ok(());
+            }
+            let output = child.wait_with_output()?;
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(WoderriseError::Registry(if detail.is_empty() {
+                format!("git exited with {status}")
+            } else {
+                detail
+            }));
+        }
+        if started.elapsed() >= timeout {
+            child.kill()?;
+            let _ = child.wait();
+            return Err(WoderriseError::Registry(format!(
+                "git operation timed out after {} seconds",
+                timeout.as_secs()
+            )));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 pub fn upsert(db: &Database, e: &CatalogEntry) -> Result<()> {
@@ -270,6 +361,20 @@ pub fn verify_artifacts(manifest: &Manifest, root: &Path) -> Result<()> {
             )));
         }
     }
+    if let Some(previews) = &manifest.previews {
+        for path in std::iter::once(&previews.thumbnail).chain(
+            previews
+                .screenshots
+                .iter()
+                .map(|screenshot| &screenshot.path),
+        ) {
+            if !root.join(path).is_file() {
+                return Err(WoderriseError::Registry(format!(
+                    "preview asset is missing: {path}"
+                )));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -314,7 +419,10 @@ fn collect_manifests(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 fn rebuild_fts(db: &Database) -> Result<()> {
-    db.conn.execute("DELETE FROM catalog_fts", [])?;
+    db.conn.execute(
+        "INSERT INTO catalog_fts(catalog_fts) VALUES('delete-all')",
+        [],
+    )?;
     db.conn.execute(
         "INSERT INTO catalog_fts(rowid,id,version,name,description,category,tags)
          SELECT rowid,id,version,name,description,category,tags FROM catalog",
@@ -397,6 +505,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_untrusted_registry_sources_before_network_access() {
+        let cache =
+            std::env::temp_dir().join(format!("woderrise-registry-{}", uuid::Uuid::new_v4()));
+        let error = sync_git_registry("http://example.invalid/registry", &cache).unwrap_err();
+        assert!(error.to_string().contains("HTTPS GitHub"));
+        assert!(!cache.exists());
+    }
+
+    #[test]
     fn rejects_duplicate_package_versions_atomically() {
         let root = std::env::temp_dir().join(format!("woderrise-catalog-{}", uuid::Uuid::new_v4()));
         package(&root, "org.test.one", "1.0.0", b"one");
@@ -421,7 +538,7 @@ mod tests {
         fs::write(&target, original).unwrap();
 
         let db = Database::open(temp.join("journal.db")).unwrap();
-        assert_eq!(import_registry(&db, &registry).unwrap(), 1);
+        assert!(import_registry(&db, &registry).unwrap() >= 2);
         let record = get(&db, "com.catppuccin.waybar", "1.0.0").unwrap();
         assert_eq!(record.manifest_path, manifest_path);
         let manifest = manifest(&db, "com.catppuccin.waybar", "1.0.0").unwrap();
@@ -506,5 +623,24 @@ mod tests {
         );
         drop(engine);
         fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn reimport_and_upsert_on_contentless_fts5_succeeds() {
+        let root = std::env::temp_dir().join(format!("woderrise-catalog-{}", uuid::Uuid::new_v4()));
+        package(&root, "org.test.one", "1.0.0", b"one");
+        let db = Database::in_memory().unwrap();
+        assert_eq!(import_registry(&db, &root).unwrap(), 1);
+
+        // Re-import on non-empty catalog_fts must succeed via delete-all
+        assert_eq!(import_registry(&db, &root).unwrap(), 1);
+
+        // Upsert on non-empty catalog_fts must rebuild FTS cleanly without error
+        let mut entry = get(&db, "org.test.one", "1.0.0").unwrap();
+        entry.description = "updated description".to_string();
+        assert!(upsert(&db, &entry).is_ok());
+        assert_eq!(search(&db, "updated", 10).unwrap().len(), 1);
+
+        fs::remove_dir_all(root).unwrap();
     }
 }

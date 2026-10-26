@@ -1,0 +1,109 @@
+export enum NavTab {
+    home,
+    browse,
+    categories,
+    installed,
+    updates,
+    registry,
+    settings,
+}
+
+export struct PackageCardData {
+    id: string,
+    name: string,
+    version: string,
+    category: string,
+    description: string,
+    license: string,
+    installed: bool,
+}
+
+export struct PaletteSwatchData {
+    name: string,
+    hex: string,
+    color: color,
+}
+
+export struct DiffLineData {
+    kind: string,       // "addition", "deletion", "context"
+    left_num: string,
+    right_num: string,
+    text: string,
+}
+
+export struct FileDiffData {
+    source_path: string,
+    target_path: string,
+    backup_path: string,
+    action: string,     // "Create", "Modify", "Unchanged"
+    additions: int,
+    deletions: int,
+    lines: [DiffLineData],
+}
+
+export struct CategoryData {
+    id: string,
+    name: string,
+    icon: string,
+    count: int,
+    description: string,
+}
+
+export global Theme {
+    // Backgrounds (Catppuccin Mocha layered depth)
+    in property <color> bg-crust:    #11111b; // Window frame / deepest layer
+    in property <color> bg-mantle:   #181825; // Sidebar, panel headers, modal backdrop
+    in property <color> bg-base:     #1e1e2e; // Main content canvas
+    in property <color> bg-surface0: #313244; // Cards, input boxes, inactive tabs
+    in property <color> bg-surface1: #45475a; // Card hover, list item selection
+    in property <color> bg-surface2: #585b70; // Distinct borders, separators
+
+    // Foregrounds & Text
+    in property <color> text-main:   #cdd6f4; // Main body text, headings
+    in property <color> text-sub:    #bac2de; // Secondary headers, category titles
+    in property <color> text-muted:  #a6adc8; // Secondary text, descriptions, timestamps
+    in property <color> text-dim:    #6c7086; // Inactive labels, line numbers, placeholders
+    in property <color> text-dark:   #11111b; // High-contrast text on bright buttons
+
+    // Accents & State Colors
+    in property <color> accent-blue:     #89b4fa; // Primary action, focus outlines, brand
+    in property <color> accent-mauve:    #cba6f7; // Secondary highlight, version pills
+    in property <color> accent-lavender: #b4befe; // Subheadings, badges
+    in property <color> accent-green:    #a6e3a1; // Installed badge, additions (+)
+    in property <color> accent-red:      #f38ba8; // Rollback button, deletions (-)
+    in property <color> accent-yellow:   #f9e2af; // Warnings, modified files
+    in property <color> accent-peach:    #fab387; // Category badges
+    in property <color> accent-teal:     #94e2d5; // Target paths, config markers
+    in property <color> accent-sky:      #89dceb; // Backup destinations
+    in property <color> accent-pink:     #f5c2e7;
+    in property <color> accent-flamingo: #f2cdcd;
+    in property <color> accent-rosewater:#f5e0dc;
+
+    // Diff line backgrounds
+    in property <color> diff-add-bg:     #1a3028; // Subtle green background for additions
+    in property <color> diff-del-bg:     #3b1c24; // Subtle red background for deletions
+    in property <color> diff-context-bg: #00000000; // Transparent for context lines
+
+    // Geometry & Radii
+    in property <length> radius-xs:   3px;
+    in property <length> radius-sm:   6px;
+    in property <length> radius-md:   10px;
+    in property <length> radius-lg:   14px;
+    in property <length> radius-pill: 20px;
+
+    // Spacing
+    in property <length> spacing-xs:  4px;
+    in property <length> spacing-sm:  8px;
+    in property <length> spacing-md:  16px;
+    in property <length> spacing-lg:  24px;
+    in property <length> spacing-xl:  32px;
+
+    // Typography
+    in property <length> font-size-xs:    11px;
+    in property <length> font-size-sm:    12px;
+    in property <length> font-size-body:  13px;
+    in property <length> font-size-md:    15px;
+    in property <length> font-size-lg:    18px;
+    in property <length> font-size-xl:    22px;
+    in property <length> font-size-title: 26px;
+}

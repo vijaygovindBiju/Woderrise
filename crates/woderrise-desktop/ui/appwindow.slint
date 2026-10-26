@@ -1,0 +1,999 @@
+import { Theme, NavTab, PackageCardData, PaletteSwatchData, DiffLineData, FileDiffData, CategoryData } from "./theme.slint";
+import { Sidebar } from "./sidebar.slint";
+import { PackageList } from "./package_list.slint";
+import { PackageDetail } from "./package_detail.slint";
+import { DiffModal } from "./diff_modal.slint";
+import { SettingsView } from "./settings_view.slint";
+import { ProgressModal } from "./progress_modal.slint";
+import { ImportModal } from "./import_modal.slint";
+
+export { NavTab, PackageCardData, PaletteSwatchData, DiffLineData, FileDiffData, CategoryData }
+
+// Reusable Metric Card for Dashboard
+component MetricCard inherits Rectangle {
+    in property <string> title: "";
+    in property <string> value: "";
+    in property <string> subtitle: "";
+    in property <color> accent-color: Theme.accent-blue;
+
+    height: 100px;
+    background: Theme.bg-surface0;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.bg-surface1;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 4px;
+        alignment: center;
+
+        Text {
+            text: root.title;
+            font-size: Theme.font-size-xs;
+            font-weight: 700;
+            color: Theme.text-dim;
+            letter-spacing: 0.8px;
+        }
+
+        Text {
+            text: root.value;
+            font-size: Theme.font-size-xl;
+            font-weight: 800;
+            color: root.accent-color;
+        }
+
+        Text {
+            text: root.subtitle;
+            font-size: Theme.font-size-xs;
+            color: Theme.text-muted;
+        }
+    }
+}
+
+// Category Card for Categories View
+component CategoryCard inherits Rectangle {
+    in property <string> icon: "📦";
+    in property <string> name: "";
+    in property <string> count-label: "0 packages";
+    in property <string> description: "";
+
+    callback clicked();
+
+    height: 110px;
+    background: Theme.bg-surface0;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.accent-blue : Theme.bg-surface1;
+
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+        alignment: center;
+
+        Rectangle {
+            width: 48px;
+            height: 48px;
+            border-radius: Theme.radius-md;
+            background: touch.has-hover ? Theme.accent-blue.with-alpha(0.2) : Theme.bg-surface1;
+
+            Text {
+                text: root.icon;
+                font-size: 22px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            alignment: center;
+
+            HorizontalLayout {
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.name;
+                    font-size: Theme.font-size-md;
+                    font-weight: 700;
+                    color: touch.has-hover ? Theme.accent-blue : Theme.text-main;
+                }
+
+                Rectangle {
+                    border-radius: Theme.radius-xs;
+                    background: Theme.bg-surface2;
+                    height: 20px;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        alignment: center;
+
+                        Text {
+                            text: root.count-label;
+                            font-size: Theme.font-size-xs;
+                            font-weight: 600;
+                            color: Theme.text-sub;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: root.description;
+                font-size: Theme.font-size-xs;
+                color: Theme.text-muted;
+                overflow: elide;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Woderrise — Desktop Configuration Manager";
+    min-width: 1024px;
+    min-height: 700px;
+    preferred-width: 1240px;
+    preferred-height: 820px;
+    background: Theme.bg-base;
+
+    // Navigation state (0 = home, 1 = browse, 2 = categories, 3 = installed, 4 = updates, 5 = registry, 6 = settings)
+    in-out property <NavTab> current-tab: NavTab.home;
+    in-out property <int> active-view: 0;
+
+    // Package catalog models
+    in-out property <[PackageCardData]> packages: [];
+    in-out property <int> selected-package-index: 0;
+    in-out property <string> search-query: "";
+    in-out property <string> selected-category: "All";
+    in property <int> total-packages-count: 1;
+
+    // Selected package detail properties
+    in-out property <string> sel-id: "";
+    in-out property <string> sel-name: "";
+    in-out property <string> sel-version: "";
+    in-out property <string> sel-category: "";
+    in-out property <string> sel-license: "";
+    in-out property <string> sel-maintainer: "";
+    in-out property <string> sel-repo-url: "";
+    in-out property <string> sel-description: "";
+    in-out property <string> sel-display-server: "";
+    in-out property <string> sel-architectures: "";
+    in-out property <string> sel-target-path: "";
+    in-out property <bool> sel-installed: false;
+    in-out property <[PaletteSwatchData]> sel-palette: [];
+
+    // Diff preview modal state
+    in-out property <bool> diff-modal-open: false;
+    in-out property <bool> show-diff-modal: false;
+    in-out property <string> diff-target-path: "";
+    in-out property <string> diff-backup-path: "";
+    in-out property <string> diff-action-type: "Create";
+    in-out property <int> diff-additions: 0;
+    in-out property <int> diff-deletions: 0;
+    in-out property <[DiffLineData]> diff-lines: [];
+    in-out property <[FileDiffData]> diff-files: [];
+
+    // Settings state
+    in-out property <bool> setting-auto-backup: true;
+    in-out property <bool> setting-strict-hash: true;
+    in-out property <bool> setting-offline-first: true;
+    in-out property <bool> setting-offline-cache: true;
+    in-out property <string> setting-compositor: "Hyprland (Wayland)";
+    in-out property <string> setting-shell: "Waybar (~/.config/waybar)";
+    in-out property <string> setting-backup-dir: "~/.local/share/woderrise/backups";
+    in-out property <string> setting-data-dir: "~/.local/share/woderrise";
+    in-out property <string> setting-journal-path: "~/.local/share/woderrise/journal.db";
+    in-out property <int> setting-total-transactions: 1;
+
+    // Async operation & progress state
+    in-out property <bool> progress-active: false;
+    in-out property <bool> show-progress-modal: false;
+    in-out property <string> progress-title: "Installing Package...";
+    in-out property <string> progress-stage: "Resolve";
+    in-out property <string> progress-message: "Resolving package manifest...";
+    in-out property <float> progress-fraction: 0.0;
+    in-out property <int> progress-percentage: 0;
+    in-out property <string> status-message: "Ready";
+    in-out property <string> connection-status: "Online";
+
+    // GitHub Import Modal State
+    in-out property <bool> show-import-dialog: false;
+    in-out property <string> import-url-input: "";
+    in-out property <string> import-error: "";
+    in-out property <bool> import-is-loading: false;
+
+    // Callbacks from UI to Rust
+    callback nav-changed(NavTab);
+    callback switch-view(int);
+    callback search-changed(string);
+    callback category-selected(string);
+    callback package-selected(int);
+    callback trigger-install();
+    callback trigger-diff();
+    callback trigger-rollback();
+    callback toggle-setting(string, bool);
+    callback toggle-setting-auto-backup();
+    callback toggle-setting-strict-hash();
+    callback toggle-setting-offline-cache();
+    callback restore-setting-defaults();
+    callback close-diff-modal();
+    callback apply-diff-install();
+    callback reindex-registry();
+    callback restore-settings();
+    callback open-import-dialog();
+    callback close-import-dialog();
+    callback submit-github-import(string);
+
+    open-import-dialog => {
+        root.show-import-dialog = true;
+        root.import-error = "";
+    }
+
+    close-import-dialog => {
+        root.show-import-dialog = false;
+        root.import-error = "";
+        root.import-is-loading = false;
+    }
+
+    switch-view(target-view) => {
+        root.active-view = target-view;
+        if target-view == 0 {
+            root.current-tab = NavTab.home;
+            root.nav-changed(NavTab.home);
+        } else if target-view == 1 {
+            root.current-tab = NavTab.browse;
+            root.nav-changed(NavTab.browse);
+        } else if target-view == 2 {
+            root.current-tab = NavTab.categories;
+            root.nav-changed(NavTab.categories);
+        } else if target-view == 3 {
+            root.current-tab = NavTab.installed;
+            root.nav-changed(NavTab.installed);
+        } else if target-view == 4 {
+            root.current-tab = NavTab.updates;
+            root.nav-changed(NavTab.updates);
+        } else if target-view == 5 {
+            root.current-tab = NavTab.registry;
+            root.nav-changed(NavTab.registry);
+        } else if target-view == 6 {
+            root.current-tab = NavTab.settings;
+            root.nav-changed(NavTab.settings);
+        }
+    }
+
+    search-changed(q) => {
+        root.search-query = q;
+    }
+
+    close-diff-modal => {
+        root.diff-modal-open = false;
+        root.show-diff-modal = false;
+    }
+
+    toggle-setting-auto-backup => {
+        root.setting-auto-backup = !root.setting-auto-backup;
+        root.toggle-setting("auto_backup", root.setting-auto-backup);
+    }
+
+    toggle-setting-strict-hash => {
+        root.setting-strict-hash = !root.setting-strict-hash;
+        root.toggle-setting("strict_hash", root.setting-strict-hash);
+    }
+
+    toggle-setting-offline-cache => {
+        root.setting-offline-cache = !root.setting-offline-cache;
+        root.setting-offline-first = root.setting-offline-cache;
+        root.toggle-setting("offline_first", root.setting-offline-first);
+    }
+
+    restore-setting-defaults => {
+        root.setting-auto-backup = true;
+        root.setting-strict-hash = true;
+        root.setting-offline-cache = true;
+        root.setting-offline-first = true;
+        root.restore-settings();
+    }
+
+    // Main Layout
+    HorizontalLayout {
+        // Left fixed Navigation Sidebar (240px)
+        Sidebar {
+            current-tab <=> root.current-tab;
+            connection-status: root.connection-status;
+            package-count-label: root.packages.length + " Verified Package(s)";
+            journal-status-label: "SQLite WAL • Active";
+            installed-count: root.sel-installed ? 1 : 0;
+            tab-selected(tab) => {
+                root.current-tab = tab;
+                if tab == NavTab.home {
+                    root.active-view = 0;
+                } else if tab == NavTab.browse {
+                    root.active-view = 1;
+                } else if tab == NavTab.categories {
+                    root.active-view = 2;
+                } else if tab == NavTab.installed {
+                    root.active-view = 3;
+                } else if tab == NavTab.updates {
+                    root.active-view = 4;
+                } else if tab == NavTab.registry {
+                    root.active-view = 5;
+                } else if tab == NavTab.settings {
+                    root.active-view = 6;
+                }
+                root.nav-changed(tab);
+            }
+            open-import-dialog => {
+                root.open-import-dialog();
+            }
+        }
+
+        // Center / Main Content Area
+        Rectangle {
+            horizontal-stretch: 1;
+            background: Theme.bg-base;
+
+            // 1. Home Dashboard View
+            if root.current-tab == NavTab.home : VerticalLayout {
+                padding: 24px;
+                spacing: 20px;
+
+                // Welcome Banner
+                Rectangle {
+                    height: 120px;
+                    background: Theme.bg-mantle;
+                    border-radius: Theme.radius-lg;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface0;
+
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text {
+                            text: "Woderrise Desktop Configuration Manager";
+                            font-size: Theme.font-size-title;
+                            font-weight: 800;
+                            color: Theme.text-main;
+                        }
+
+                        Text {
+                            text: "Declarative, transactional configuration management and desktop styling for Wayland environments.";
+                            font-size: Theme.font-size-body;
+                            color: Theme.text-sub;
+                        }
+                    }
+                }
+
+                // Metrics Cards Row
+                HorizontalLayout {
+                    spacing: 16px;
+
+                    MetricCard {
+                        horizontal-stretch: 1;
+                        title: "INDEXED PACKAGES";
+                        value: root.packages.length + "";
+                        subtitle: "Genuine verified packages";
+                        accent-color: Theme.accent-blue;
+                    }
+
+                    MetricCard {
+                        horizontal-stretch: 1;
+                        title: "INSTALLED CONFIGS";
+                        value: root.sel-installed ? "1" : "0";
+                        subtitle: root.sel-installed ? "Active configuration" : "No active installations";
+                        accent-color: root.sel-installed ? Theme.accent-green : Theme.text-muted;
+                    }
+
+                    MetricCard {
+                        horizontal-stretch: 1;
+                        title: "REGISTRY HEALTH";
+                        value: "Verified";
+                        subtitle: "SHA-256 manifests intact";
+                        accent-color: Theme.accent-mauve;
+                    }
+
+                    MetricCard {
+                        horizontal-stretch: 1;
+                        title: "TRANSACTION JOURNAL";
+                        value: "WAL Active";
+                        subtitle: root.setting-total-transactions + " committed transaction(s)";
+                        accent-color: Theme.accent-teal;
+                    }
+                }
+
+                // Featured Spotlight Card
+                Rectangle {
+                    background: Theme.bg-surface0;
+                    border-radius: Theme.radius-lg;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface1;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 14px;
+
+                        HorizontalLayout {
+                            alignment: center;
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "FEATURED DESKTOP RICE";
+                                font-size: Theme.font-size-xs;
+                                font-weight: 800;
+                                color: Theme.accent-peach;
+                                letter-spacing: 1.0px;
+                            }
+
+                            Rectangle {
+                                border-radius: Theme.radius-xs;
+                                background: Theme.accent-mauve.with-alpha(0.2);
+                                height: 22px;
+
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Waybar Theme";
+                                        font-size: Theme.font-size-xs;
+                                        font-weight: 700;
+                                        color: Theme.accent-mauve;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Catppuccin Waybar Mocha Theme (v1.0.0)";
+                            font-size: Theme.font-size-lg;
+                            font-weight: 700;
+                            color: Theme.text-main;
+                        }
+
+                        Text {
+                            text: "Genuine Catppuccin Mocha color definitions for Waybar. Includes 4 authentic palette tokens (base, blue, mauve, text) targeting ~/.config/waybar/catppuccin-mocha.css with full rollback safety.";
+                            font-size: Theme.font-size-body;
+                            color: Theme.text-sub;
+                        }
+
+                        HorizontalLayout {
+                            alignment: center;
+
+                            // Palette strip
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 8px;
+
+                                Rectangle { width: 32px; height: 32px; border-radius: 4px; background: #1e1e2e; border-width: 1px; border-color: Theme.bg-surface2; }
+                                Rectangle { width: 32px; height: 32px; border-radius: 4px; background: #89b4fa; }
+                                Rectangle { width: 32px; height: 32px; border-radius: 4px; background: #cba6f7; }
+                                Rectangle { width: 32px; height: 32px; border-radius: 4px; background: #cdd6f4; }
+                            }
+
+                            // Inspect Button
+                            Rectangle {
+                                width: 150px;
+                                height: 36px;
+                                border-radius: Theme.radius-sm;
+                                background: Theme.accent-blue;
+
+                                Text {
+                                    text: "Inspect in Browser →";
+                                    font-size: Theme.font-size-body;
+                                    font-weight: 700;
+                                    color: Theme.text-dark;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.current-tab = NavTab.browse;
+                                        root.active-view = 1;
+                                        root.nav-changed(NavTab.browse);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Browse Packages View (Split Master-Detail)
+            if root.current-tab == NavTab.browse : HorizontalLayout {
+                PackageList {
+                    width: 440px;
+                    packages: root.packages;
+                    selected-index <=> root.selected-package-index;
+                    search-query <=> root.search-query;
+                    selected-category <=> root.selected-category;
+                    total-count: root.total-packages-count;
+
+                    search-modified(q) => {
+                        root.search-changed(q);
+                    }
+                    category-selected(cat) => {
+                        root.category-selected(cat);
+                    }
+                    item-clicked(idx) => {
+                        root.selected-package-index = idx;
+                        root.package-selected(idx);
+                    }
+                }
+
+                Rectangle {
+                    width: 1px;
+                    background: Theme.bg-surface0;
+                }
+
+                PackageDetail {
+                    horizontal-stretch: 1;
+                    pkg-id: root.sel-id;
+                    pkg-name: root.sel-name;
+                    pkg-version: root.sel-version;
+                    pkg-category: root.sel-category;
+                    pkg-license: root.sel-license;
+                    pkg-maintainer: root.sel-maintainer;
+                    pkg-repo-url: root.sel-repo-url;
+                    pkg-description: root.sel-description;
+                    pkg-display-server: root.sel-display-server;
+                    pkg-architectures: root.sel-architectures;
+                    pkg-target-path: root.sel-target-path;
+                    pkg-installed: root.sel-installed;
+                    palette-swatches: root.sel-palette;
+                    has-selection: root.packages.length > 0;
+
+                    install-clicked => { root.trigger-install(); }
+                    diff-clicked => { root.trigger-diff(); }
+                    rollback-clicked => { root.trigger-rollback(); }
+                }
+            }
+
+            // 3. Categories View
+            if root.current-tab == NavTab.categories : VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: "Explore Desktop Components by Category";
+                    font-size: Theme.font-size-xl;
+                    font-weight: 800;
+                    color: Theme.text-main;
+                }
+
+                Text {
+                    text: "Taxonomic organization of Linux Wayland rice components, bars, themes, and shell configurations.";
+                    font-size: Theme.font-size-sm;
+                    color: Theme.text-sub;
+                }
+
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        CategoryCard {
+                            horizontal-stretch: 1;
+                            icon: "📊";
+                            name: "Bar Themes & Modules";
+                            count-label: "1 verified";
+                            description: "Status bar colorways, CSS themes, and layout definitions for Waybar and Polybar.";
+                            clicked => {
+                                root.selected-category = "bar_themes_modules";
+                                root.current-tab = NavTab.browse;
+                                root.active-view = 1;
+                                root.category-selected("bar_themes_modules");
+                            }
+                        }
+
+                        CategoryCard {
+                            horizontal-stretch: 1;
+                            icon: "🪟";
+                            name: "Window Managers";
+                            count-label: "0 packages";
+                            description: "Compositor setups and window management rules for Hyprland, Sway, and Niri.";
+                            clicked => {
+                                root.selected-category = "window_managers";
+                                root.current-tab = NavTab.browse;
+                                root.active-view = 1;
+                                root.category-selected("window_managers");
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        CategoryCard {
+                            horizontal-stretch: 1;
+                            icon: "🐚";
+                            name: "Shells & Prompts";
+                            count-label: "0 packages";
+                            description: "Terminal prompts, Starship presets, and shell customizations for Fish and Zsh.";
+                            clicked => {
+                                root.selected-category = "shells";
+                                root.current-tab = NavTab.browse;
+                                root.active-view = 1;
+                                root.category-selected("shells");
+                            }
+                        }
+
+                        CategoryCard {
+                            horizontal-stretch: 1;
+                            icon: "💻";
+                            name: "Terminal Emulators";
+                            count-label: "0 packages";
+                            description: "Palette themes and configuration for Kitty, Alacritty, Foot, and Ghostty.";
+                            clicked => {
+                                root.selected-category = "terminals";
+                                root.current-tab = NavTab.browse;
+                                root.active-view = 1;
+                                root.category-selected("terminals");
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        CategoryCard {
+                            horizontal-stretch: 1;
+                            icon: "🎨";
+                            name: "GTK & Qt Themes";
+                            count-label: "0 packages";
+                            description: "Application window aesthetics, widget colors, and Qt style plugins.";
+                            clicked => {
+                                root.selected-category = "gtk_qt_themes";
+                                root.current-tab = NavTab.browse;
+                                root.active-view = 1;
+                                root.category-selected("gtk_qt_themes");
+                            }
+                        }
+
+                        CategoryCard {
+                            horizontal-stretch: 1;
+                            icon: "🖼️";
+                            name: "Wallpapers";
+                            count-label: "0 packages";
+                            description: "Curated desktop backdrops and dynamic wallpaper configurations.";
+                            clicked => {
+                                root.selected-category = "wallpapers";
+                                root.current-tab = NavTab.browse;
+                                root.active-view = 1;
+                                root.category-selected("wallpapers");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Installed Packages View
+            if root.current-tab == NavTab.installed : VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: "Installed Desktop Configurations";
+                    font-size: Theme.font-size-xl;
+                    font-weight: 800;
+                    color: Theme.text-main;
+                }
+
+                if !root.sel-installed : Rectangle {
+                    height: 160px;
+                    border-radius: Theme.radius-lg;
+                    background: Theme.bg-surface0;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface1;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 8px;
+
+                        Text {
+                            text: "No packages installed yet";
+                            font-size: Theme.font-size-md;
+                            font-weight: 700;
+                            color: Theme.text-sub;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Visit the Browse tab to discover and install verified packages.";
+                            font-size: Theme.font-size-sm;
+                            color: Theme.text-dim;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                if root.sel-installed : Rectangle {
+                    height: 110px;
+                    background: Theme.bg-surface0;
+                    border-radius: Theme.radius-md;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface1;
+
+                    HorizontalLayout {
+                        padding: 16px;
+                        alignment: center;
+                        spacing: 16px;
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            alignment: center;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                Text {
+                                    text: root.sel-name;
+                                    font-size: Theme.font-size-md;
+                                    font-weight: 700;
+                                    color: Theme.text-main;
+                                }
+
+                                Rectangle {
+                                    border-radius: Theme.radius-xs;
+                                    background: Theme.accent-green.with-alpha(0.2);
+                                    height: 20px;
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        alignment: center;
+
+                                        Text {
+                                            text: "Active";
+                                            font-size: Theme.font-size-xs;
+                                            font-weight: 700;
+                                            color: Theme.accent-green;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Target: " + root.sel-target-path;
+                                font-size: Theme.font-size-xs;
+                                font-family: "monospace";
+                                color: Theme.accent-teal;
+                            }
+                        }
+
+                        // Rollback Action Button
+                        Rectangle {
+                            width: 120px;
+                            height: 36px;
+                            border-radius: Theme.radius-sm;
+                            background: Theme.accent-red;
+
+                            Text {
+                                text: "Rollback";
+                                font-size: Theme.font-size-body;
+                                font-weight: 700;
+                                color: Theme.text-dark;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.trigger-rollback(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. Updates View
+            if root.current-tab == NavTab.updates : VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: "Package Updates & Integrity Re-validation";
+                    font-size: Theme.font-size-xl;
+                    font-weight: 800;
+                    color: Theme.text-main;
+                }
+
+                Rectangle {
+                    height: 120px;
+                    border-radius: Theme.radius-lg;
+                    background: Theme.bg-surface0;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface1;
+
+                    HorizontalLayout {
+                        padding: 20px;
+                        alignment: center;
+                        spacing: 16px;
+
+                        Rectangle {
+                            width: 44px;
+                            height: 44px;
+                            border-radius: 22px;
+                            background: Theme.accent-green.with-alpha(0.2);
+
+                            Text {
+                                text: "✓";
+                                font-size: 20px;
+                                color: Theme.accent-green;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            alignment: center;
+
+                            Text {
+                                text: "All Installed Packages Are Up to Date";
+                                font-size: Theme.font-size-md;
+                                font-weight: 700;
+                                color: Theme.text-main;
+                            }
+
+                            Text {
+                                text: "Active configurations match the latest verified registry manifests. SHA-256 hashes verified.";
+                                font-size: Theme.font-size-xs;
+                                color: Theme.text-dim;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. Registry View
+            if root.current-tab == NavTab.registry : VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: "Registry Status & Verification";
+                    font-size: Theme.font-size-xl;
+                    font-weight: 800;
+                    color: Theme.text-main;
+                }
+
+                Rectangle {
+                    background: Theme.bg-surface0;
+                    border-radius: Theme.radius-lg;
+                    border-width: 1px;
+                    border-color: Theme.bg-surface1;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "CONFIGURED REPOSITORIES";
+                            font-size: Theme.font-size-xs;
+                            font-weight: 800;
+                            color: Theme.accent-lavender;
+                            letter-spacing: 1.0px;
+                        }
+
+                        HorizontalLayout {
+                            Text { width: 140px; text: "Local Registry Path:"; font-size: Theme.font-size-sm; color: Theme.text-dim; }
+                            Text { horizontal-stretch: 1; text: "registry/packages"; font-size: Theme.font-size-sm; font-family: "monospace"; color: Theme.accent-teal; }
+                        }
+
+                        HorizontalLayout {
+                            Text { width: 140px; text: "Active Manifest:"; font-size: Theme.font-size-sm; color: Theme.text-dim; }
+                            Text { horizontal-stretch: 1; text: "com.catppuccin.waybar/1.0.0/woderrise.yaml"; font-size: Theme.font-size-sm; font-family: "monospace"; color: Theme.text-sub; }
+                        }
+
+                        HorizontalLayout {
+                            Text { width: 140px; text: "Payload SHA-256:"; font-size: Theme.font-size-sm; color: Theme.text-dim; }
+                            Text { horizontal-stretch: 1; text: "a6e30597ccc828e898844eb0cea9df7d73879ff5672a6a550f3acc24c93edd17"; font-size: Theme.font-size-xs; font-family: "monospace"; color: Theme.accent-sky; overflow: elide; }
+                        }
+
+                        HorizontalLayout {
+                            Text { width: 140px; text: "Integrity Status:"; font-size: Theme.font-size-sm; color: Theme.text-dim; }
+                            Text { horizontal-stretch: 1; text: "Cryptographically Verified (SHA-256 match)"; font-size: Theme.font-size-sm; font-weight: 700; color: Theme.accent-green; }
+                        }
+
+                        Rectangle {
+                            height: 38px;
+                            border-radius: Theme.radius-sm;
+                            background: Theme.accent-blue;
+
+                            Text {
+                                text: "Re-index Local Registry";
+                                font-size: Theme.font-size-body;
+                                font-weight: 700;
+                                color: Theme.text-dark;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.reindex-registry(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 7. Settings View
+            if root.current-tab == NavTab.settings : SettingsView {
+                auto-backup <=> root.setting-auto-backup;
+                strict-hash <=> root.setting-strict-hash;
+                offline-first <=> root.setting-offline-first;
+                target-compositor: root.setting-compositor;
+                target-shell: root.setting-shell;
+                backup-dir: root.setting-backup-dir;
+                journal-path: root.setting-journal-path;
+                total-transactions: root.setting-total-transactions;
+
+                setting-toggled(key, val) => { root.toggle-setting(key, val); }
+                reindex-clicked => { root.reindex-registry(); }
+                restore-defaults-clicked => { root.restore-settings(); }
+            }
+        }
+    }
+
+    // Modal Layer 1: Diff Preview Modal
+    if root.diff-modal-open || root.show-diff-modal : DiffModal {
+        package-id: root.sel-id;
+        package-version: root.sel-version;
+        target-path: root.diff-target-path;
+        backup-path: root.diff-backup-path;
+        action-type: root.diff-action-type;
+        additions-count: root.diff-additions;
+        deletions-count: root.diff-deletions;
+        diff-lines: root.diff-lines;
+        can-install: !root.sel-installed;
+
+        close-clicked => {
+            root.diff-modal-open = false;
+            root.show-diff-modal = false;
+            root.close-diff-modal();
+        }
+        apply-install-clicked => {
+            root.diff-modal-open = false;
+            root.show-diff-modal = false;
+            root.apply-diff-install();
+        }
+    }
+
+    // Modal Layer 2: Asynchronous Progress Modal
+    if root.progress-active || root.show-progress-modal : ProgressModal {
+        title: root.progress-title;
+        stage: root.progress-stage;
+        message: root.progress-message;
+        fraction: root.progress-fraction;
+    }
+
+    // Modal Layer 3: GitHub Import Modal
+    if root.show-import-dialog : ImportModal {
+        url-input <=> root.import-url-input;
+        error-message: root.import-error;
+        is-loading: root.import-is-loading;
+
+        close-clicked => {
+            root.close-import-dialog();
+        }
+        submit-clicked(url) => {
+            root.submit-github-import(url);
+        }
+    }
+}

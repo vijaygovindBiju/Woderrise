@@ -1,0 +1,158 @@
+import { Theme, PackageCardData } from "./theme.slint";
+
+export component PackageCard inherits Rectangle {
+    in property <PackageCardData> data;
+    in property <bool> is-selected: false;
+
+    callback clicked();
+
+    border-radius: Theme.radius-md;
+    background: root.is-selected ? Theme.bg-surface1 : (touch.has-hover ? Theme.bg-surface0 : Theme.bg-surface0.with-alpha(0.5));
+    border-width: root.is-selected ? 1.5px : 1px;
+    border-color: root.is-selected ? Theme.accent-blue : (touch.has-hover ? Theme.bg-surface2 : Theme.bg-surface0);
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+
+        // Title and Version Row
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.data.name;
+                font-size: Theme.font-size-md;
+                font-weight: 700;
+                color: Theme.text-main;
+                overflow: elide;
+            }
+
+            Rectangle {
+                border-radius: Theme.radius-xs;
+                background: Theme.accent-mauve.with-alpha(0.18);
+                height: 20px;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    alignment: center;
+
+                    Text {
+                        text: "v" + root.data.version;
+                        font-size: Theme.font-size-xs;
+                        font-weight: 700;
+                        color: Theme.accent-mauve;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Package ID
+        Text {
+            text: root.data.id;
+            font-size: Theme.font-size-xs;
+            color: Theme.text-dim;
+            font-family: "monospace";
+            overflow: elide;
+        }
+
+        // Description
+        Text {
+            text: root.data.description;
+            font-size: Theme.font-size-sm;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            overflow: elide;
+            max-height: 38px;
+        }
+
+        // Bottom Badges Row
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+
+            // Category Badge
+            Rectangle {
+                border-radius: Theme.radius-xs;
+                background: Theme.accent-peach.with-alpha(0.15);
+                height: 20px;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    alignment: center;
+
+                    Text {
+                        text: root.data.category;
+                        font-size: Theme.font-size-xs;
+                        color: Theme.accent-peach;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // License Badge
+            Rectangle {
+                border-radius: Theme.radius-xs;
+                background: Theme.bg-surface2;
+                height: 20px;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    alignment: center;
+
+                    Text {
+                        text: root.data.license;
+                        font-size: Theme.font-size-xs;
+                        color: Theme.text-sub;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            // Installed vs Available Status Pill
+            Rectangle {
+                border-radius: Theme.radius-pill;
+                background: root.data.installed ? Theme.accent-green.with-alpha(0.15) : Theme.accent-blue.with-alpha(0.15);
+                height: 20px;
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 4px;
+                    alignment: center;
+
+                    Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: root.data.installed ? Theme.accent-green : Theme.accent-blue;
+                        vertical-stretch: 0;
+                    }
+
+                    Text {
+                        text: root.data.installed ? "Installed" : "Available";
+                        font-size: Theme.font-size-xs;
+                        font-weight: 600;
+                        color: root.data.installed ? Theme.accent-green : Theme.accent-blue;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}

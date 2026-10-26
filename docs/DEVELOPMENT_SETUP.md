@@ -70,6 +70,20 @@ env HOME=/tmp/woderrise-sandbox \
     cargo run --bin woderrise-gui
 ```
 
+The checked-in `registry/packages` directory is used by default. To refresh
+from a GitHub-hosted Woderrise registry asynchronously, configure its
+repository explicitly:
+
+```bash
+env HOME=/tmp/woderrise-sandbox \
+    WODERRISE_REGISTRY_URL=https://github.com/<owner>/<registry-repo> \
+    cargo run --bin woderrise-gui
+```
+
+Only HTTPS GitHub repositories are accepted for this refresh path. Failed
+fetches or invalid remote manifests leave the last validated local catalog
+available.
+
 ---
 
 ## 4. Building and Testing

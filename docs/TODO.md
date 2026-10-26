@@ -104,15 +104,15 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Subsystem:** UI Discovery
   - **Dependencies:** `TASK-M3-GUI-001`
   - **Completion Criteria:** Renders package cards; queries SQLite FTS5 index in < 50ms.
-- [ ] **`TASK-M3-GUI-003`**: Implement HiDPI Image Carousel and Color Palette Swatch Viewer.
+- [x] **`TASK-M3-GUI-003`**: Implement manifest preview metadata and palette viewer in the TUI.
   - **Subsystem:** UI Previews
   - **Dependencies:** `TASK-M3-GUI-001`
   - **Completion Criteria:** Smoothly scrolls screenshots; provides 1-click hex copying for theme palettes.
-- [ ] **`TASK-M3-GUI-004`**: Implement Side-by-Side Unified Diff Inspector widget.
+- [x] **`TASK-M3-GUI-004`**: Implement source-versus-target diff inspector in the TUI.
   - **Subsystem:** UI Diff Viewer
   - **Dependencies:** `TASK-M3-GUI-001`
   - **Completion Criteria:** Renders synchronized dual-pane diffs for configuration files.
-- [ ] **`TASK-M3-GUI-005`**: Implement installation preview and asynchronous live transaction progress.
+- [x] **`TASK-M3-GUI-005`**: Implement installation preview and asynchronous live transaction progress.
   - **Subsystem:** UI Transactions
   - **Dependencies:** `TASK-M3-GUI-004`, `TASK-M2-DBUS-001`
   - **Completion Criteria:** Displays pre-install safety summary; renders real-time pipeline step progress.
@@ -120,6 +120,10 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Subsystem:** UI History
   - **Dependencies:** `TASK-M3-GUI-001`, `TASK-M2-DBUS-001`
   - **Completion Criteria:** Lists transaction records; triggers rollback with optimistic concurrency modal if needed.
+- [x] **`TASK-M3-GUI-007`**: Load the TUI catalog from validated manifests and an optional asynchronous GitHub registry cache.
+  - **Subsystem:** UI Discovery
+  - **Dependencies:** `TASK-M3-GUI-002`, `TASK-M4-REG-001`
+  - **Completion Criteria:** Refreshes configured HTTPS GitHub registries without blocking the TUI, preserves cached entries on failure, and previews verified artifact content.
 
 ---
 
