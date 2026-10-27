@@ -150,7 +150,7 @@ pub fn write_bytes_durably(target_path: &Utf8Path, data: &[u8]) -> Result<()> {
 
 /// Durably write a serializable data structure to disk as formatted JSON.
 pub fn write_json_file_durably<T: Serialize>(target_path: &Utf8Path, value: &T) -> Result<()> {
-    let json_bytes = serde_json::to_vec_pretty(value)
-        .map_err(|e| WoderriseError::Serialization(e.into()))?;
+    let json_bytes =
+        serde_json::to_vec_pretty(value).map_err(|e| WoderriseError::Serialization(e.into()))?;
     write_bytes_durably(target_path, &json_bytes)
 }

@@ -23,29 +23,28 @@ impl XdgPaths {
             if !val.trim().is_empty() {
                 val
             } else {
-                let base = BaseDirs::new().ok_or_else(|| {
-                    PathError::BaseDirectoryNotFound {
-                        dir_type: "HOME".to_string(),
-                    }
+                let base = BaseDirs::new().ok_or_else(|| PathError::BaseDirectoryNotFound {
+                    dir_type: "HOME".to_string(),
                 })?;
                 base.home_dir().to_string_lossy().to_string()
             }
         } else {
-            let base = BaseDirs::new().ok_or_else(|| {
-                PathError::BaseDirectoryNotFound {
-                    dir_type: "HOME".to_string(),
-                }
+            let base = BaseDirs::new().ok_or_else(|| PathError::BaseDirectoryNotFound {
+                dir_type: "HOME".to_string(),
             })?;
             base.home_dir().to_string_lossy().to_string()
         };
 
-        let home_dir = Utf8PathBuf::from_path_buf(home_str.into())
-            .map_err(|p| PathError::NonUtf8Path { path: format!("{:?}", p) })?;
+        let home_dir =
+            Utf8PathBuf::from_path_buf(home_str.into()).map_err(|p| PathError::NonUtf8Path {
+                path: format!("{:?}", p),
+            })?;
 
         let config_home = if let Ok(val) = env::var("XDG_CONFIG_HOME") {
             if !val.trim().is_empty() {
-                Utf8PathBuf::from_path_buf(val.into())
-                    .map_err(|p| PathError::NonUtf8Path { path: format!("{:?}", p) })?
+                Utf8PathBuf::from_path_buf(val.into()).map_err(|p| PathError::NonUtf8Path {
+                    path: format!("{:?}", p),
+                })?
             } else {
                 home_dir.join(".config")
             }
@@ -55,8 +54,9 @@ impl XdgPaths {
 
         let data_home = if let Ok(val) = env::var("XDG_DATA_HOME") {
             if !val.trim().is_empty() {
-                Utf8PathBuf::from_path_buf(val.into())
-                    .map_err(|p| PathError::NonUtf8Path { path: format!("{:?}", p) })?
+                Utf8PathBuf::from_path_buf(val.into()).map_err(|p| PathError::NonUtf8Path {
+                    path: format!("{:?}", p),
+                })?
             } else {
                 home_dir.join(".local/share")
             }
@@ -66,8 +66,9 @@ impl XdgPaths {
 
         let cache_home = if let Ok(val) = env::var("XDG_CACHE_HOME") {
             if !val.trim().is_empty() {
-                Utf8PathBuf::from_path_buf(val.into())
-                    .map_err(|p| PathError::NonUtf8Path { path: format!("{:?}", p) })?
+                Utf8PathBuf::from_path_buf(val.into()).map_err(|p| PathError::NonUtf8Path {
+                    path: format!("{:?}", p),
+                })?
             } else {
                 home_dir.join(".cache")
             }
@@ -77,8 +78,9 @@ impl XdgPaths {
 
         let state_home = if let Ok(val) = env::var("XDG_STATE_HOME") {
             if !val.trim().is_empty() {
-                Utf8PathBuf::from_path_buf(val.into())
-                    .map_err(|p| PathError::NonUtf8Path { path: format!("{:?}", p) })?
+                Utf8PathBuf::from_path_buf(val.into()).map_err(|p| PathError::NonUtf8Path {
+                    path: format!("{:?}", p),
+                })?
             } else {
                 home_dir.join(".local/state")
             }
@@ -196,21 +198,27 @@ impl XdgPaths {
             return Err(PathError::ComponentRootEscape {
                 path: destination,
                 allowed_root: root,
-            }.into());
+            }
+            .into());
         }
 
         Ok(destination)
     }
 
     /// Verify that an absolute target path is fully contained within the component root.
-    pub fn validate_target_containment(&self, target: &Utf8Path, component: ConfigComponent) -> Result<()> {
+    pub fn validate_target_containment(
+        &self,
+        target: &Utf8Path,
+        component: ConfigComponent,
+    ) -> Result<()> {
         let target_str = target.as_str();
 
         // 1. Check for null bytes
         if target_str.contains('\0') {
             return Err(PathError::ContainsNullByte {
                 path: target_str.to_string(),
-            }.into());
+            }
+            .into());
         }
 
         // 2. Reject parent directory traversal (..) in any component
@@ -220,7 +228,8 @@ impl XdgPaths {
                     return Err(PathError::PathTraversalAttempted {
                         path: target.to_string(),
                         token: "..".to_string(),
-                    }.into());
+                    }
+                    .into());
                 }
                 camino::Utf8Component::Normal(segment)
                     if segment == ".." || segment.contains("..") =>
@@ -228,7 +237,8 @@ impl XdgPaths {
                     return Err(PathError::PathTraversalAttempted {
                         path: target.to_string(),
                         token: segment.to_string(),
-                    }.into());
+                    }
+                    .into());
                 }
                 _ => {}
             }
@@ -240,7 +250,8 @@ impl XdgPaths {
             return Err(PathError::ComponentRootEscape {
                 path: target.to_path_buf(),
                 allowed_root: root,
-            }.into());
+            }
+            .into());
         }
         Ok(())
     }
@@ -294,13 +305,19 @@ pub fn validate_target_containment(target: &Utf8Path, component: ConfigComponent
 /// Validate that an identifier (such as transaction_id) contains only safe characters.
 pub fn validate_identifier(id: &str) -> Result<()> {
     if id.is_empty() {
-        return Err(WoderriseError::Validation("Identifier cannot be empty".into()));
+        return Err(WoderriseError::Validation(
+            "Identifier cannot be empty".into(),
+        ));
     }
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(PathError::PathTraversalAttempted {
             path: id.to_string(),
             token: "invalid_identifier_characters".to_string(),
-        }.into());
+        }
+        .into());
     }
     Ok(())
 }
@@ -321,14 +338,16 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
         return Err(PathError::PathTraversalAttempted {
             path: path_str.to_string(),
             token: "empty_path".to_string(),
-        }.into());
+        }
+        .into());
     }
 
     // 2. Check for null bytes
     if path_str.contains('\0') {
         return Err(PathError::ContainsNullByte {
             path: path_str.to_string(),
-        }.into());
+        }
+        .into());
     }
 
     // 3. Detect and reject percent-encoded traversal tokens (%2e, %2f, %5c, %00)
@@ -338,7 +357,8 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
             return Err(PathError::PathTraversalAttempted {
                 path: path_str.to_string(),
                 token: (*token).to_string(),
-            }.into());
+            }
+            .into());
         }
     }
 
@@ -346,7 +366,8 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
     if path.is_absolute() || path_str.starts_with('/') || path_str.starts_with('\\') {
         return Err(PathError::AbsolutePathNotAllowed {
             path: path_str.to_string(),
-        }.into());
+        }
+        .into());
     }
     if path_str.len() >= 2 {
         let first = path_str.chars().next().unwrap();
@@ -354,7 +375,8 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
         if first.is_ascii_alphabetic() && second == ':' {
             return Err(PathError::AbsolutePathNotAllowed {
                 path: path_str.to_string(),
-            }.into());
+            }
+            .into());
         }
     }
 
@@ -366,7 +388,8 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
                 return Err(PathError::PathTraversalAttempted {
                     path: path_str.to_string(),
                     token: "..".to_string(),
-                }.into());
+                }
+                .into());
             }
             camino::Utf8Component::CurDir => {
                 // Skip '.'
@@ -377,14 +400,16 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
                     return Err(PathError::PathTraversalAttempted {
                         path: path_str.to_string(),
                         token: segment.to_string(),
-                    }.into());
+                    }
+                    .into());
                 }
                 clean_components.push(segment);
             }
             camino::Utf8Component::RootDir | camino::Utf8Component::Prefix(_) => {
                 return Err(PathError::AbsolutePathNotAllowed {
                     path: path_str.to_string(),
-                }.into());
+                }
+                .into());
             }
         }
     }
@@ -393,7 +418,8 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
         return Err(PathError::PathTraversalAttempted {
             path: path_str.to_string(),
             token: "empty_path".to_string(),
-        }.into());
+        }
+        .into());
     }
 
     let result = clean_components.iter().collect::<Utf8PathBuf>();
@@ -404,10 +430,7 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
 /// E.g. `Configs/.config/hypr/hyprland.conf` -> `hyprland.conf` when component is Hyprland.
 /// Only strips the first matching component prefix to preserve nested directories
 /// of the same name (e.g. `dotfiles/hypr/themes/hypr/custom.conf` -> `themes/hypr/custom.conf`).
-pub fn strip_dotfile_repo_prefix<'a>(
-    path: &'a Utf8Path,
-    component_subpath: &str,
-) -> &'a Utf8Path {
+pub fn strip_dotfile_repo_prefix<'a>(path: &'a Utf8Path, component_subpath: &str) -> &'a Utf8Path {
     let s = path.as_str();
     let marker_start = format!("{}/", component_subpath);
     let marker_slash = format!("/{}", marker_start);

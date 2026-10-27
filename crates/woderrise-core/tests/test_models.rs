@@ -126,21 +126,19 @@ fn test_staging_manifest_roundtrip_and_security_invariants() {
         created_at: Utc::now(),
         staging_dir: Utf8PathBuf::from("/tmp/staging/tx1"),
         target_dir: Utf8PathBuf::from("/home/user/.config/hypr"),
-        files: vec![
-            StagedFile {
-                relative_path: Utf8PathBuf::from("hyprland.conf"),
-                target_destination: Some(Utf8PathBuf::from("/home/user/.config/hypr/hyprland.conf")),
-                blob_sha: Some("e48aa9249ad1527ae37fc09d21e08abd20a20f7e".to_string()),
-                file_size: 3412,
-                sha256: "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a".to_string(),
-                file_mode: "100644".to_string(),
-                permissions: 0o644,
-                is_executable: false,
-                is_symlink: false,
-                syntax_valid: true,
-                path_safe: true,
-            },
-        ],
+        files: vec![StagedFile {
+            relative_path: Utf8PathBuf::from("hyprland.conf"),
+            target_destination: Some(Utf8PathBuf::from("/home/user/.config/hypr/hyprland.conf")),
+            blob_sha: Some("e48aa9249ad1527ae37fc09d21e08abd20a20f7e".to_string()),
+            file_size: 3412,
+            sha256: "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a".to_string(),
+            file_mode: "100644".to_string(),
+            permissions: 0o644,
+            is_executable: false,
+            is_symlink: false,
+            syntax_valid: true,
+            path_safe: true,
+        }],
         security_audit: SecurityAuditReport {
             scripts_detected: 0,
             procedural_directives_neutralized: 2,
@@ -265,20 +263,20 @@ fn test_journal_wal_roundtrip_active_and_committed() {
     };
 
     let json = serde_json::to_string_pretty(&journal).expect("Failed to serialize journal");
-    let deserialized: Journal =
-        serde_json::from_str(&json).expect("Failed to deserialize journal");
+    let deserialized: Journal = serde_json::from_str(&json).expect("Failed to deserialize journal");
 
     assert_eq!(journal, deserialized);
+    assert_eq!(
+        deserialized.active_transaction.as_ref().unwrap().status,
+        TransactionStatus::Applying
+    );
     assert_eq!(
         deserialized
             .active_transaction
             .as_ref()
             .unwrap()
-            .status,
-        TransactionStatus::Applying
-    );
-    assert_eq!(
-        deserialized.active_transaction.as_ref().unwrap().operations.len(),
+            .operations
+            .len(),
         2
     );
     assert_eq!(deserialized.transactions.len(), 1);

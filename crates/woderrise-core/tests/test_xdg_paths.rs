@@ -40,7 +40,10 @@ fn test_xdg_custom_isolated_paths() {
         paths.staging_dir("tx_12345").unwrap(),
         base.join(".cache/woderrise/staging/tx_12345")
     );
-    assert_eq!(paths.woderrise_state_dir(), base.join(".local/state/woderrise"));
+    assert_eq!(
+        paths.woderrise_state_dir(),
+        base.join(".local/state/woderrise")
+    );
     assert_eq!(
         paths.backup_dir("tx_12345").unwrap(),
         base.join(".local/state/woderrise/backups/tx_12345")
@@ -112,7 +115,10 @@ fn test_resolve_destination_success() {
             Utf8Path::new("modules/clock.jsonc"),
         )
         .unwrap();
-    assert_eq!(resolved_sub, base.join(".config/waybar/modules/clock.jsonc"));
+    assert_eq!(
+        resolved_sub,
+        base.join(".config/waybar/modules/clock.jsonc")
+    );
 }
 
 #[test]
@@ -196,5 +202,7 @@ fn test_target_containment_component_root_escape_traversal() {
 
     // Direct path test
     let direct_evil = Utf8Path::new("/home/user/.config/hypr/../autostart/bad.desktop");
-    assert!(paths.validate_target_containment(direct_evil, ConfigComponent::Hyprland).is_err());
+    assert!(paths
+        .validate_target_containment(direct_evil, ConfigComponent::Hyprland)
+        .is_err());
 }

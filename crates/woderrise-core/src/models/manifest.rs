@@ -42,7 +42,12 @@ pub struct PackageReference {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StagedFile {
     pub relative_path: Utf8PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "destination", alias = "target_file", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "destination",
+        alias = "target_file",
+        default
+    )]
     pub target_destination: Option<Utf8PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub blob_sha: Option<String>,
@@ -94,7 +99,11 @@ pub struct SecurityAuditReport {
 /// Staging manifest generated before atomic file swap.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StagingManifest {
-    #[serde(rename = "$schema", default = "default_manifest_schema", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "$schema",
+        default = "default_manifest_schema",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub schema: Option<String>,
     #[serde(default = "default_manifest_version")]
     pub version: u32,
@@ -144,7 +153,10 @@ impl StagingManifest {
                 return Err(format!("Invalid SHA-256 for file: {}", file.relative_path));
             }
             if file.relative_path.is_absolute() || file.relative_path.as_str().contains("..") {
-                return Err(format!("Path traversal violation in: {}", file.relative_path));
+                return Err(format!(
+                    "Path traversal violation in: {}",
+                    file.relative_path
+                ));
             }
         }
         Ok(())

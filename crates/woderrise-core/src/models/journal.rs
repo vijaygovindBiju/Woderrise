@@ -33,7 +33,10 @@ impl TransactionStatus {
     pub fn can_transition_to(&self, next: TransactionStatus) -> bool {
         match self {
             TransactionStatus::Staged => {
-                matches!(next, TransactionStatus::Applying | TransactionStatus::Failed)
+                matches!(
+                    next,
+                    TransactionStatus::Applying | TransactionStatus::Failed
+                )
             }
             TransactionStatus::Applying => {
                 matches!(
@@ -100,7 +103,11 @@ pub struct FileOperationRecord {
     pub op_type: OperationType,
     #[serde(alias = "path")]
     pub target_file: Utf8PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none", default, alias = "original_backup_path")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        alias = "original_backup_path"
+    )]
     pub backup_file: Option<Utf8PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pre_sha256: Option<String>,
@@ -143,7 +150,8 @@ impl ActiveTransaction {
             Err(crate::error::TransactionError::InvalidStateTransition {
                 from: format!("{:?}", self.status),
                 to: format!("{:?}", next),
-            }.into())
+            }
+            .into())
         }
     }
 }
@@ -169,7 +177,11 @@ pub struct JournalEntry {
 /// Persistent transaction journal storing active WAL and transaction history.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Journal {
-    #[serde(rename = "$schema", default = "default_journal_schema", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "$schema",
+        default = "default_journal_schema",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub schema: Option<String>,
     #[serde(default = "default_journal_version")]
     pub version: u32,

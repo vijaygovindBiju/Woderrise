@@ -67,4 +67,3 @@ mod tests {
         assert!(sanitize_relative_path(Utf8Path::new("null\0byte")).is_err());
     }
 }
-

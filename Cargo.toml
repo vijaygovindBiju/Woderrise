@@ -50,6 +50,7 @@ async-trait = "0.1.92"
 # Security & Cryptography
 sha2 = "0.10.8"
 uuid = { version = "1.16", features = ["v4", "serde"] }
+base64 = "0.22.1"
 
 # Utilities & Types
 chrono = { version = "0.4.45", features = ["serde"] }

@@ -89,7 +89,9 @@ fn test_transaction_error_lifo_and_variants() {
     };
     let display = format!("{}", lifo_err);
     assert!(display.contains("LIFO order violation"));
-    assert!(display.contains("cannot rollback transaction 'tx_123' because newer transaction 'tx_456' exists"));
+    assert!(display.contains(
+        "cannot rollback transaction 'tx_123' because newer transaction 'tx_456' exists"
+    ));
 
     let progress_err = TransactionError::TransactionInProgress {
         active_tx_id: "active_999".to_string(),

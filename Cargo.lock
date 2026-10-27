@@ -2007,10 +2007,13 @@ dependencies = [
 name = "woderrise-detect"
 version = "0.1.0"
 dependencies = [
+ "camino",
  "json5",
  "regex",
  "serde",
  "serde_json",
+ "tempfile",
+ "thiserror",
  "tracing",
  "woderrise-core",
 ]
@@ -2020,11 +2023,15 @@ name = "woderrise-github"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
+ "camino",
  "chrono",
  "moka",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",

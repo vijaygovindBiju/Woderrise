@@ -4,9 +4,7 @@ use camino::Utf8PathBuf;
 use std::fs;
 use tempfile::TempDir;
 use woderrise_core::models::Catalog;
-use woderrise_core::schema::{
-    read_json_file, write_bytes_durably, write_json_file_durably,
-};
+use woderrise_core::schema::{read_json_file, write_bytes_durably, write_json_file_durably};
 
 #[test]
 fn test_write_json_file_durably_creates_and_syncs() {

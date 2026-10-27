@@ -85,7 +85,11 @@ impl CatalogRepository {
 /// Complete catalog repository registry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Catalog {
-    #[serde(rename = "$schema", default = "default_catalog_schema", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "$schema",
+        default = "default_catalog_schema",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub schema: Option<String>,
     #[serde(default = "default_catalog_version")]
     pub version: u32,

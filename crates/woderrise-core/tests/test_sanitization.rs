@@ -42,7 +42,10 @@ fn test_reject_parent_directory_traversal() {
                     token
                 );
             }
-            other => panic!("Expected PathTraversalAttempted for '{}', got: {:?}", input, other),
+            other => panic!(
+                "Expected PathTraversalAttempted for '{}', got: {:?}",
+                input, other
+            ),
         }
     }
 }
@@ -61,7 +64,10 @@ fn test_reject_null_bytes() {
             WoderriseError::Path(PathError::ContainsNullByte { path }) => {
                 assert_eq!(path, input);
             }
-            other => panic!("Expected ContainsNullByte for '{}', got: {:?}", input, other),
+            other => panic!(
+                "Expected ContainsNullByte for '{}', got: {:?}",
+                input, other
+            ),
         }
     }
 }
@@ -82,7 +88,10 @@ fn test_reject_absolute_paths_and_windows_drives() {
             WoderriseError::Path(PathError::AbsolutePathNotAllowed { path }) => {
                 assert_eq!(path, input);
             }
-            other => panic!("Expected AbsolutePathNotAllowed for '{}', got: {:?}", input, other),
+            other => panic!(
+                "Expected AbsolutePathNotAllowed for '{}', got: {:?}",
+                input, other
+            ),
         }
     }
 }
@@ -97,7 +106,10 @@ fn test_reject_empty_paths() {
             WoderriseError::Path(PathError::PathTraversalAttempted { token, .. }) => {
                 assert_eq!(token, "empty_path");
             }
-            other => panic!("Expected PathTraversalAttempted for '{}', got: {:?}", input, other),
+            other => panic!(
+                "Expected PathTraversalAttempted for '{}', got: {:?}",
+                input, other
+            ),
         }
     }
 }
@@ -139,7 +151,10 @@ fn test_reject_percent_encoded_traversal_and_null() {
         let err = sanitize_relative_path(Utf8Path::new(input)).unwrap_err();
         match err {
             WoderriseError::Path(PathError::PathTraversalAttempted { .. }) => {}
-            other => panic!("Expected PathTraversalAttempted for '{}', got: {:?}", input, other),
+            other => panic!(
+                "Expected PathTraversalAttempted for '{}', got: {:?}",
+                input, other
+            ),
         }
     }
 }

@@ -51,7 +51,10 @@ pub enum DomainError {
     PackageNotFound { id: String },
 
     #[error("Component '{component}' not found in package '{package_id}'")]
-    ComponentNotFound { component: String, package_id: String },
+    ComponentNotFound {
+        component: String,
+        package_id: String,
+    },
 
     #[error("Invalid package metadata for field '{field}': {reason}")]
     InvalidMetadata { field: String, reason: String },
@@ -186,10 +189,7 @@ pub enum SerializationError {
     },
 
     #[error("Schema version mismatch: expected '{expected}', found '{found}'")]
-    SchemaVersionMismatch {
-        expected: String,
-        found: String,
-    },
+    SchemaVersionMismatch { expected: String, found: String },
 
     #[error("Invalid schema format: {0}")]
     InvalidFormat(String),
@@ -205,10 +205,7 @@ impl From<serde_json::Error> for SerializationError {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TransactionError {
     #[error("Invalid state transition from '{from}' to '{to}'")]
-    InvalidStateTransition {
-        from: String,
-        to: String,
-    },
+    InvalidStateTransition { from: String, to: String },
 
     #[error("Active transaction '{active_tx_id}' is already in progress")]
     TransactionInProgress { active_tx_id: String },

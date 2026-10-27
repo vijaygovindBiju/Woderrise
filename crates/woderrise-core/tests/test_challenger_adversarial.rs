@@ -192,10 +192,7 @@ fn test_challenge_staging_manifest_section_8_2_2_verbatim_json() {
     assert!(manifest.files[0].syntax_valid);
     assert!(manifest.files[0].path_safe);
     assert!(manifest.security_audit.passed);
-    assert_eq!(
-        manifest.security_audit.procedural_directives_neutralized,
-        2
-    );
+    assert_eq!(manifest.security_audit.procedural_directives_neutralized, 2);
 
     // Invariant validation
     assert!(manifest.validate_security_invariants().is_ok());
@@ -400,7 +397,9 @@ fn test_challenge_symlink_mode_120000_and_executable_script_enforcement() {
         target_dir: Utf8PathBuf::from("/home/user/.config/hypr"),
         files: vec![StagedFile {
             relative_path: Utf8PathBuf::from("scripts/deploy.bash"),
-            target_destination: Some(Utf8PathBuf::from("/home/user/.config/hypr/scripts/deploy.bash")),
+            target_destination: Some(Utf8PathBuf::from(
+                "/home/user/.config/hypr/scripts/deploy.bash",
+            )),
             blob_sha: None,
             file_size: 50,
             sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
@@ -425,7 +424,10 @@ fn test_challenge_symlink_mode_120000_and_executable_script_enforcement() {
     let res_interp = manifest_interpreter_bypass.validate_security_invariants();
 
     // Security invariants MUST reject symlinks, executable scripts, and script extensions
-    assert!(res_symlink.is_err(), "Mode 120000 must be blocked even if is_symlink is false");
+    assert!(
+        res_symlink.is_err(),
+        "Mode 120000 must be blocked even if is_symlink is false"
+    );
     assert!(res_exec.is_err(), "Executable scripts must be blocked");
     assert!(res_interp.is_err(), "Script files must be blocked");
 }
@@ -439,7 +441,10 @@ fn test_challenge_transaction_lifecycle_transitions() {
         (TransactionStatus::Committed, "\"Committed\""),
         (TransactionStatus::RollingBack, "\"RollingBack\""),
         (TransactionStatus::RolledBack, "\"RolledBack\""),
-        (TransactionStatus::RecoveredRollback, "\"RecoveredRollback\""),
+        (
+            TransactionStatus::RecoveredRollback,
+            "\"RecoveredRollback\"",
+        ),
         (TransactionStatus::Failed, "\"Failed\""),
     ];
 
@@ -482,7 +487,9 @@ fn test_challenge_transaction_lifecycle_transitions() {
         active_transaction: Some(tx),
         transactions: vec![],
     };
-    assert!(journal_with_committed_active.validate_wal_invariants().is_err());
+    assert!(journal_with_committed_active
+        .validate_wal_invariants()
+        .is_err());
 }
 
 /// 6. Empirically verify durability write, atomic rename, and fsync protocol.
@@ -595,10 +602,16 @@ fn test_challenge_path_sanitization_adversarial_matrix() {
 fn test_challenge_strip_dotfile_repo_prefix_edge_cases() {
     // Normal cases
     let p1 = camino::Utf8Path::new("Configs/.config/hypr/hyprland.conf");
-    assert_eq!(strip_dotfile_repo_prefix(p1, "hypr").as_str(), "hyprland.conf");
+    assert_eq!(
+        strip_dotfile_repo_prefix(p1, "hypr").as_str(),
+        "hyprland.conf"
+    );
 
     let p2 = camino::Utf8Path::new("hypr/hyprland.conf");
-    assert_eq!(strip_dotfile_repo_prefix(p2, "hypr").as_str(), "hyprland.conf");
+    assert_eq!(
+        strip_dotfile_repo_prefix(p2, "hypr").as_str(),
+        "hyprland.conf"
+    );
 
     // Edge case: Repository has a nested directory named 'hypr' inside hypr
     // e.g. dotfiles/hypr/themes/hypr/custom.conf
