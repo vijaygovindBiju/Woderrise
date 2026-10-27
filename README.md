@@ -27,10 +27,10 @@ Woderrise redefines this experience by delivering the polished, discoverable, an
 
 | The Traditional Dotfile Nightmare | The Woderrise Solution |
 | :--- | :--- |
-| **Monolithic Git Clones**: Cloning 500MB–1GB repositories for a single config file wastes bandwidth and disk space. | **No-Clone GitHub API Pipeline**: Queries GitHub REST & Git Trees APIs (`recursive=1`), streaming only targeted config blobs by content-addressed SHA hashes (>98% bandwidth reduction). |
-| **Silent, Irreversible Overwrites**: Setup scripts overwrite `~/.config/` files with zero pre-flight backups. | **Automatic Pre-Install Snapshots**: Creates full local backups in `~/.local/state/woderrise/backups/` before any file is touched. |
-| **Arbitrary Shell Script Execution**: `curl ... \| bash` installers execute untrusted code with full user or root permissions. | **Zero Arbitrary Script Execution**: Configurations are treated as pure declarative assets; shell scripts (`install.sh`) are strictly prohibited. |
-| **Corrupted Partial Writes**: An interrupted install or power loss leaves half-written, broken configuration files. | **4-Phase Atomic Swaps**: Writes to temporary sibling files (`<file>.woderrise_tmp`), syncs to disk (`fsync`), and atomically swaps via `std::fs::rename`. |
+| **Monolithic Git Clones**: Cloning 500MB–1GB repositories for a single config file wastes bandwidth and disk space. | **No-Clone GitHub & Fastly CDN Pipeline**: Queries GitHub REST & Git Trees APIs (`recursive=1`), streaming targeted config files via commit-pinned Fastly CDN raw endpoints (`raw.githubusercontent.com`, consuming 0 REST quota) with content-addressed SHA verification (>98% bandwidth reduction). |
+| **Silent, Irreversible Overwrites**: Setup scripts overwrite `~/.config/` files with zero pre-flight backups. | **Automatic Pre-Install Snapshots**: Creates full local backups in `~/.local/state/woderrise/backups/` before any file is touched. Preserves hardware display configs (`monitors.conf`) by default. |
+| **Arbitrary Shell Script Execution**: `curl ... \| bash` installers execute untrusted code with full user or root permissions. | **Zero Arbitrary Script Execution & Procedural Auditing**: Configurations are pure declarative assets; scripts (`install.sh`, `sh script.sh`) are prohibited; inline commands (`exec-once`, `exec`, `on-click`) are audited and neutralized by default; compositor reloads are security-gated. |
+| **Corrupted Partial Writes**: An interrupted install or power loss leaves half-written, broken configuration files. | **4-Phase Atomic Swaps with WAL & Durability**: Writes Write-Ahead Log (WAL) to `journal.json` as `"Applying"`, stream-copies to sibling temporary files (`<file>.woderrise_tmp`, preventing `EXDEV`), syncs (`fsync`), atomically swaps via `std::fs::rename`, and commits parent directory `fsync`. |
 | **All-or-Nothing Monoliths**: Adopting a bar theme forces adopting the author's window manager keybindings and terminal configs. | **Independent Component Lifecycle**: Modular detection permits cherry-picking individual components (e.g. only Waybar or only Hyprlock) without unwanted changes. |
 | **Synthetic Demo Data & Fake Stores**: Tools often rely on hardcoded dummy catalogs or mocked mockups. | **Exclusively Real-World Data**: Production builds query live GitHub repositories only; zero fabricated packages exist in production. |
 
@@ -44,9 +44,9 @@ Woderrise is architected as a modular Rust Cargo workspace consisting of 5 decou
 woderrise/
 ├── crates/
 │   ├── woderrise-core/              # Domain models, path sanitization, error taxonomy (headless)
-│   ├── woderrise-github/            # GitHub REST client, Git Trees parser, ETag cache, rate limiter
-│   ├── woderrise-detect/            # Dotfile component detectors (Hyprland conf/lua, Waybar, etc.)
-│   ├── woderrise-transaction/       # Staging sandbox, backup snapshot engine, atomic swapper, journal
+│   ├── woderrise-github/            # GitHub REST client, Fastly CDN streamer, Git Trees parser, in-memory TTL cache, rate limiter
+│   ├── woderrise-detect/            # Dotfile component detectors (Hyprland conf/lua, json5 Waybar, hardware protection)
+│   ├── woderrise-transaction/       # Staging sandbox, WAL, backup snapshot engine, atomic swapper, journal, LIFO rollback
 │   └── woderrise-gui/               # Native Iced (v0.14+) desktop GUI presentation layer
 └── src/
     └── main.rs                      # Binary entrypoint: runtime bootstrap and signal orchestration
@@ -65,9 +65,9 @@ graph TD
 
     subgraph Domain & Storage Tiers
         CORE[woderrise-core: Domain Models & Paths]
-        GITHUB[woderrise-github: No-Clone GitHub Client]
-        DETECT[woderrise-detect: Component Parsers]
-        TX[woderrise-transaction: Atomic Engine & Journal]
+        GITHUB[woderrise-github: Fastly CDN & GitHub Client]
+        DETECT[woderrise-detect: Component Parsers & json5]
+        TX[woderrise-transaction: WAL Atomic Engine & Journal]
     end
 
     GUI -->|Dispatches GuiCommand| CMD
@@ -94,24 +94,28 @@ graph TD
    - Safe path normalization and traversal containment checkers using `camino::Utf8Path`.
 2. **`woderrise-github`**:
    - Direct integration with GitHub's REST API and Git Trees API (`recursive=1`).
-   - Content-addressed raw blob streaming by blob SHA (`Accept: application/vnd.github.raw`).
-   - Rate limit defenses: `If-None-Match` (ETag) conditional caching (returns `HTTP 304 Not Modified` with zero rate limit decrement), header tracking (`x-ratelimit-remaining`), exponential backoff, and optional Personal Access Token (PAT) support.
+   - Bulk dotfile streaming via commit-pinned Fastly CDN (`raw.githubusercontent.com/{owner}/{repo}/{commit_sha}/{path}`), consuming **0 REST API rate limit quota** (with `/git/blobs/{blob_sha}` fallback).
+   - In-memory TTL cache (`moka` with 10-minute default TTL) so repeated views/refreshes make ZERO network requests (reflecting that unauthenticated 304s decrement quota by 1).
+   - Two-tier search architecture with separate `X-RateLimit-Resource: search` pool monitoring (10 req/min unauthenticated, 30 req/min authenticated) and visual quota gauge.
    - Enforces exclusively live, real-world data.
 3. **`woderrise-detect`**:
-   - Independent component classification and syntax validation:
-     - **Hyprland**: Legacy block/directive syntax (`hyprland.conf`) and modern Lua syntax (`hyprland.lua`).
-     - **Waybar**: JSONC configurations (`config.jsonc`) and GTK CSS (`style.css`).
+   - Independent component classification, hardware protection, and syntax validation:
+     - **Hyprland**: Legacy block/directive syntax (`hyprland.conf`) and modern Lua syntax (`hyprland.lua`), with explicit precedence rules and legacy deactivation handling (`hyprland.conf.disabled_by_woderrise`).
+     - **Waybar**: JSONC configurations parsed with `json5` lexer (safely handling `//`, `/* */`, and trailing commas without regex string literal corruption of URLs) and GTK CSS (`style.css`).
+     - **Hardware Protection**: Scans for display and hardware files (`monitors.conf`, `workspaces.conf`, `hardware.conf`), preserving local configurations by default with `[Preserve Local Display Config]` badges.
      - **Hyprlock & Hypridle**: Hyprland block directives (`background`, `input-field`, `listener`).
      - **Hyprpaper & Wallpapers**: Wallpaper directives and image assets with path remapping.
      - **Hyprcursor**: Cursor theme structures and `manifest.hl`.
      - **GTK 3/4 & Icons**: `settings.ini` and FreeDesktop `index.theme`.
 4. **`woderrise-transaction`**:
    - Sandboxed staging workspace (`$XDG_CACHE_HOME/woderrise/staging/<tx_id>/`).
-   - Security auditing: blocks directory traversal (`..`), denies arbitrary script execution, and validates symlink containment.
+   - Security auditing: blocks directory traversal, forbids Git tree symlink objects (`mode 120000`, CVE-2021-21300 defense), resolves and preserves GNU Stow / Chezmoi target symlinks (`symlink_metadata`), and evaluates authentic permissions from Git Tree metadata (NTFS/FAT mount safe).
+   - Procedural Execution Audit: indexes and neutralizes inline execution directives (`exec-once`, `exec`, `on-click`, `on-timeout`).
    - Pre-installation snapshot backup engine (`$XDG_STATE_HOME/woderrise/backups/<tx_id>/`).
-   - 4-phase atomic file replacement using temporary sibling files and `std::fs::rename`.
-   - Persistent transaction journal (`$XDG_DATA_HOME/woderrise/journal.json`) with advisory file locks (`fs2`).
-   - Startup crash recovery engine that automatically restores snapshots if a prior transaction was interrupted.
+   - Write-Ahead Logging (WAL) protocol writing `active_transaction: "Applying"` to `journal.json` before Phase 3 file swaps.
+   - 4-phase atomic file replacement using stream copy (`std::io::copy`, eliminating cross-device `EXDEV` errors), `fsync`, atomic `rename`, and parent directory `fsync` durability commits.
+   - Persistent transaction journal updated via atomic sibling writes (`journal.json.tmp` -> `rename`) with advisory file locks (`fs2`).
+   - Startup crash recovery engine and linear LIFO rollback with dirty-state verification (`current_sha256 == post_sha256`) and empty directory cleanup.
 5. **`woderrise-gui`**:
    - Native desktop GUI built on **`iced` (v0.14+)** using `winit` for native Wayland protocols (`xdg-shell`, `fractional-scale-v1`), subpixel font rendering, and `AccessKit` accessibility.
    - Secondary architecture option documented: `relm4` (v0.11+) + Libadwaita for GNOME HIG compliance.
@@ -126,66 +130,75 @@ To understand how Woderrise operates from the moment a user launches the applica
 
 ```
 [ 1. Discovery ]          [ 2. Inspection ]           [ 3. Staging & Audit ]       [ 4. Atomic Install ]       [ 5. Rollback ]
- User searches /           User inspects card;         Target blobs downloaded      Pre-install snapshot        User clicks Rollback;
- filters by category.      Woderrise fetches tree      to sandbox; hashes and       backed up; atomic swap      snapshot atomically
- ETag cached query         & renders Markdown          paths verified; scripts      via rename(); compositor    restored; journal
- returns card grid.        README & syntax diff.       rejected.                    reloaded; journal logged.   updated.
+ Two-tier search:          Inspect card; tree          Fastly CDN streaming (0 q);  Pre-install snapshot;       LIFO rollback;
+ Tier 1 local filter;      scanned; hardware           permissions from tree;       WAL commit to journal;      dirty state check;
+ Tier 2 remote with        protected; Markdown         scripts & inline commands    atomic rename & fsync;      snapshot restored;
+ TTL cache & gauge.        README & diff.              audited & neutralized.       security-gated reload.      journal updated.
 ```
 
-### Phase 1: Search & Discovery
-1. The user opens Woderrise. The application reads `$XDG_DATA_HOME/woderrise/catalog.json` and connects to GitHub API.
+### Phase 1: Search & Discovery (Two-Tier Architecture)
+1. The user opens Woderrise. The application loads `$XDG_DATA_HOME/woderrise/catalog.json` and initializes the `moka` in-memory TTL cache.
 2. The user types a query (e.g. `catppuccin`) into the search bar or clicks a category filter pill (`Waybar`).
-3. The GUI applies a 300ms debounce timer. If the user continues typing, active search tasks are canceled immediately via `tokio_util::sync::CancellationToken`, preserving API rate limits.
-4. The background Tokio worker issues a query to GitHub's Search API (`GET /search/repositories?q=topic:hyprland-dotfiles+catppuccin`) with `If-None-Match: <etag>`.
-5. If GitHub returns `HTTP 304 Not Modified`, cached results are returned instantly with zero rate limit penalty. If `HTTP 200`, the fresh JSON results are parsed, stored in the cache, and rendered in the GUI as responsive repository cards displaying star counts, author handles, preview banners, and detected component badges.
+3. **Tier 1 (Instant Local Filter)**: The search box instantly filters across repositories already cataloged in `catalog.json` (0ms latency, zero network calls, zero quota consumption).
+4. **Tier 2 (Remote GitHub Search API)**: If local results are insufficient, pressing `Enter`, clicking "Search GitHub", or an extended **600ms debounce** triggers a remote query to GitHub's Search API (`GET /search/repositories?q=topic:hyprland-dotfiles+catppuccin`).
+5. **In-Memory TTL Caching**: The engine checks the in-memory cache (10-minute default TTL). Within the TTL window, results return immediately without network access. When TTL expires or on manual refresh, a request is sent with `If-None-Match: <etag>`. (Note: unauthenticated 304 responses still decrement GitHub's rate limit quota by 1).
+6. The GUI displays an active **Search Quota Gauge** tracking the dedicated `X-RateLimit-Resource: search` pool (10 req/min unauthenticated, 30 req/min authenticated).
 
 ### Phase 2: Inspection & Remote Tree Resolution
 1. The user clicks **Inspect** on a repository card (e.g. `prasanthrangan/hyprdots`).
-2. Woderrise issues a single Git Trees API request: `GET /repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1`.
-3. In a single JSON payload (<200 KB), Woderrise receives the complete file hierarchy, including file modes, blob SHAs, and sizes.
-4. `woderrise-detect` scans the tree in memory:
-   - Identifies `Configs/.config/hypr/hyprland.conf` as a legacy Hyprland configuration.
-   - Identifies `Configs/.config/waybar/config.jsonc` and `style.css` as a Waybar theme.
-5. In the background, Woderrise fetches `README.md` and screenshot image assets from the repository.
-6. The GUI transitions to the **Split-Pane Inspect View**:
-   - **Left Pane**: Repository metadata, license, detected component checklist, and action buttons.
-   - **Right Pane**: Tab 1 displays the fully rendered Markdown `README.md`; Tab 2 displays the remote file tree browser; Tab 3 displays the **Diff Viewer**.
-7. When the user clicks **Preview Diff**, Woderrise downloads the target blob by SHA, reads the user's current local file (e.g. `~/.config/hypr/hyprland.conf`), and computes a syntax-highlighted Myers diff displaying exact additions and removals before any disk changes occur.
+2. Woderrise issues a single Git Trees API request: `GET /repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1` (<200 KB JSON payload).
+3. `woderrise-detect` scans the tree in memory:
+   - Identifies `Configs/.config/hypr/hyprland.conf` as legacy Hyprland configuration.
+   - Identifies `Configs/.config/waybar/config.jsonc` as a Waybar theme, validating comments and URLs via `json5`.
+   - Identifies `monitors.conf` as a **Hardware-Bound** configuration: automatically unchecks it by default with an informational badge: `[Preserve Local Display Config]`.
+   - Identifies any Hyprland Lua syntax (`hyprland.lua`), preparing legacy deactivation if Lua is selected.
+4. In the background, Woderrise fetches `README.md` and screenshot image assets via Fastly CDN.
+5. The GUI transitions to the **Split-Pane Inspect View**:
+   - **Left Pane**: Repository metadata, license, detected component checklist with hardware protection badges, and action buttons.
+   - **Right Pane**: Tab 1 renders Markdown `README.md`; Tab 2 displays the remote tree browser; Tab 3 displays the **Diff Viewer**.
+6. Clicking **Preview Diff** downloads the remote file via Fastly CDN, reads the local file, and computes a syntax-highlighted Myers diff.
 
 ### Phase 3: Sandboxed Staging & Security Audit
-1. The user selects the components they wish to install (e.g. checking `[x] Waybar Theme` while leaving `[ ] Hyprland Config` unchecked) and clicks **Install Selected**.
-2. Woderrise generates a unique transaction ID (e.g. `tx_20261027_141500_waybar_7d8e9f`) and creates an isolated staging sandbox under `$XDG_CACHE_HOME/woderrise/staging/<tx_id>/`.
-3. The engine downloads only the required blobs directly from GitHub using content-addressed blob URLs (`GET /repos/{owner}/{repo}/git/blobs/{sha}` with `Accept: application/vnd.github.raw`).
+1. The user selects desired components (e.g. `[x] Waybar Theme`, leaving hardware `[ ] monitors.conf` preserved) and clicks **Install Selected**.
+2. Woderrise creates an isolated staging sandbox under `$XDG_CACHE_HOME/woderrise/staging/<tx_id>/`.
+3. **Fastly CDN Bulk Streaming**: The engine streams configuration files using commit-pinned raw URLs: `https://raw.githubusercontent.com/{owner}/{repo}/{commit_sha}/{path}` via Fastly CDN edge caching, consuming **zero GitHub REST API rate limit quota** (retaining `/git/blobs/{blob_sha}` as fallback).
 4. **The Security Audit Executes**:
-   - **Zero Script Execution**: Verifies no shell scripts (`.sh`), binaries, or executable permissions exist in the staged target set.
-   - **Path Traversal Containment**: Validates that every relative destination path stays strictly within the component's designated root (`$XDG_CONFIG_HOME/waybar/`). Any path with `..` or absolute prefixes is rejected.
-   - **Symlink Safety**: Rejects any symlinks referencing paths outside the sandbox.
+   - **Zero Script Execution & Interpreter Bypass**: Verifies no shell scripts (`.sh`, `.bash`, `.py`) or binaries exist.
+   - **Procedural Execution Audit**: Extracts and catalogs inline commands (`exec-once`, `exec`, `on-click`, `on-timeout`); comments them out by default in staging; presents a Security Review dialog.
+   - **Symlink Directory Traversal Prevention**: Rejects Git tree symlink objects (`mode 120000`) to prevent CVE-2021-21300 directory traversal.
+   - **GNU Stow / Chezmoi Compatibility**: Inspects existing destination files via `symlink_metadata()`. If a symlink is detected, resolves the canonical target to avoid breaking dotfile manager links.
+   - **Filesystem Permissions**: Evaluates modes from Git Tree metadata (`100644`), preventing NTFS/FAT `stat()` degradation (`core.filemode=false`).
    - **Cryptographic Verification**: Computes SHA-256 hashes of all staged files and records them in `staging/<tx_id>/manifest.json`.
 
-### Phase 4: 4-Phase Atomic Swap & Compositor Reload
-1. The user reviews the staging report modal and confirms the installation.
-2. **Phase 2 (Backup Snapshot)**: The engine identifies all existing files in `~/.config/waybar/` that will be replaced. It creates an exact pre-installation backup snapshot under `$XDG_STATE_HOME/woderrise/backups/<tx_id>/` and records pre-install SHA-256 hashes.
-3. **Phase 3 (Atomic Replacement)**: For each file:
-   - Writes the new file into the destination directory as `<filename>.woderrise_tmp`.
-   - Calls `fsync()` to ensure the data is physically flushed to storage.
-   - Calls `std::fs::rename()` to atomically replace the target file. (On POSIX filesystems, `rename` is atomic, eliminating the possibility of half-written files).
-4. **Phase 4 (Commit & Notification)**:
-   - Appends an entry marked `Committed` to `$XDG_DATA_HOME/woderrise/journal.json`.
-   - Cleans up the ephemeral staging directory.
-   - Dispatches desktop reload signals: issues `pkill -SIGUSR2 waybar` or `hyprctl reload`.
-5. The GUI displays an installation success banner featuring an immediate `[ Rollback ]` action button.
+### Phase 4: 4-Phase Atomic Swap with WAL & Security-Gated Reload
+1. The user reviews the staging report and confirms installation.
+2. **Phase 2 (Backup Snapshot)**: Identifies existing files in target directories, copies them to `$XDG_STATE_HOME/woderrise/backups/<tx_id>/`, and records pre-installation SHA-256 hashes.
+3. **Write-Ahead Logging (WAL)**: Before file swaps begin, atomically writes `active_transaction: { id, status: "Applying", backup_dir, operations }` to `journal.json` using temporary sibling file write (`journal.json.tmp`), calls `fsync()`, and renames via `std::fs::rename()`.
+4. **Phase 3 (Atomic Replacement & Durability)**: For each file:
+   - Stream-copies data from staging into `<filename>.woderrise_tmp` in the target directory via `std::io::copy()`, eliminating cross-device `EXDEV` errors.
+   - Calls `fsync()` on the temporary file descriptor to flush data to storage.
+   - Calls `std::fs::rename()` to atomically replace the target file.
+   - Calls `fsync()` on the parent directory descriptor (`File::open(parent_dir)?.sync_all()?`) ensuring directory entry durability across sudden power loss.
+5. **Phase 4 (Commit & Security-Gated Reload)**:
+   - Atomically updates `journal.json`: transitions `active_transaction` to `null` and appends `Committed` to `transactions`.
+   - Cleans up ephemeral staging directory.
+   - Security-Gated Reload: If procedural commands were reviewed, prompts user for opt-in confirmation before dispatching reload signals (`pkill -SIGUSR2 waybar`, `hyprctl reload`); suppresses automatic reload.
+6. The GUI displays an installation success banner featuring an immediate `[ Rollback ]` action button.
 
 ### Phase 5: 1-Click Rollback & Startup Crash Recovery
-1. **User-Initiated Rollback**:
-   - If the user navigates to the **History View** and clicks **Rollback This Transaction**:
-   - The engine marks the transaction as `RollingBack` in `journal.json`.
-   - Atomically restores all files from `$XDG_STATE_HOME/woderrise/backups/<tx_id>/` back into `~/.config/waybar/`.
-   - Deletes any newly created files that did not exist before the transaction.
-   - Triggers desktop service reload (`pkill -SIGUSR2 waybar`).
+1. **User-Initiated Rollback (LIFO Stack & Dirty State)**:
+   - Navigates to **History View** and clicks **Rollback This Transaction**.
+   - **LIFO Validation**: Checks that transactions are undone in reverse chronological order.
+   - **Dirty State Verification**: Compares `current_sha256 == post_sha256`. If user modified files post-install, displays a **Dirty State Warning** with diff, offering safety backup.
+   - Marks transaction as `RollingBack` in `journal.json` via WAL.
+   - Atomically restores all files from `$XDG_STATE_HOME/woderrise/backups/<tx_id>/`.
+   - Deletes newly created files and prunes empty parent directories.
+   - Restores any deactivated legacy configs (`hyprland.conf.disabled_by_woderrise` -> `hyprland.conf`).
+   - Dispatches compositor reload signal (`hyprctl reload`).
    - Updates transaction status to `RolledBack`. The desktop returns to its exact prior state.
-2. **Crash Recovery**:
-   - If the system loses power or the process is killed mid-write, the next time Woderrise launches, its startup recovery scanner reads `journal.json`.
-   - If a transaction is found in an uncommitted `Applying` or `RollingBack` state, Woderrise automatically restores the pre-installation backup snapshot and alerts the user, guaranteeing zero persistent desktop corruption.
+2. **Startup Crash Recovery (WAL Engine)**:
+   - If power was cut or process was killed mid-write, the startup recovery scanner inspects `journal.json`.
+   - If an `active_transaction` is found in `"Applying"` or `"RollingBack"` status, Woderrise automatically restores the pre-installation backup snapshot and alerts the user, guaranteeing zero persistent corruption.
 
 ---
 
@@ -218,9 +231,11 @@ $XDG_STATE_HOME/woderrise/
 ## 6. Security Boundaries
 
 Woderrise is built with defense-in-depth principles:
-- **No Arbitrary Script Execution**: Strictly rejects executing `install.sh`, `setup.sh`, bootstrap hooks, or Python scripts. Packages requiring procedural execution to generate configs are flagged as unsupported.
-- **Strict Path Canonicalization**: Every target path is checked via `path.starts_with(allowed_component_root)`. Traversal attempts (`../`) are aborted immediately.
-- **Symlink Containment**: Git symlinks (`mode 120000`) pointing outside the component root or targeting system files (`/etc`, `~/.ssh`) are strictly prohibited. Safe internal symlinks are converted to regular file copies during staging.
+- **Zero Arbitrary Script Execution & Interpreter Bypass**: Strictly rejects running `install.sh`, `setup.sh`, bootstrap binaries, or Python scripts. Evaluates all procedural script files as active code regardless of permission bits (`0644`). Extracts, indexes, and neutralizes inline execution directives (`exec-once`, `exec`, `on-click`, `on-timeout`) by default in staging, and gates compositor reloads behind explicit user opt-in.
+- **Strict Path Canonicalization & Component Root Pinning**: Every target path is checked via `path.starts_with(allowed_component_root)` with roots strictly pinned per component (e.g. `~/.config/hypr/` for Hyprland, `~/.config/waybar/` for Waybar). Any traversal attempts (`..`, null bytes, or attempts to write to generic `autostart/` or `systemd/user/`) are aborted immediately.
+- **Symlink Traversal Protection (CVE-2021-21300) & GNU Stow / Chezmoi Preservation**: Forbids Git tree symlink objects (`mode 120000`) in untrusted packages to eliminate directory traversal vulnerabilities. Detects existing user symlinks on the host via `std::fs::symlink_metadata()` to resolve canonical targets and preserve GNU Stow / Chezmoi setups.
+- **Filesystem Permission Resilience (NTFS / FAT)**: On NTFS/FAT mounts (`core.filemode=false`), host `stat()` degenerates to `0755`. Woderrise derives file modes and executability strictly from Git Tree metadata (`100644`), preventing false-positive security alarms.
+- **Crash Consistency (WAL) & Durability**: Mandates Write-Ahead Logging in `journal.json` before Phase 3 file swaps, uses stream copy (`std::io::copy`) into target sibling temporary files to eliminate cross-device `EXDEV` errors, and commits directory changes via parent directory `fsync`.
 - **Bounded Resource Usage**: File size caps (max 10MB per config file, max 50MB per wallpaper) and network stream timeouts prevent denial-of-service vulnerabilities.
 - **Unprivileged Execution**: The GUI and engine run completely unprivileged in the user session. No root or `sudo` permissions are ever requested or required.
 
