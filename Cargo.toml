@@ -6,7 +6,7 @@ members = [
     "crates/woderrise-transaction",
     "crates/woderrise-gui",
 ]
-default-members = ["crates/woderrise-core"]
+default-members = ["crates/woderrise-gui"]
 resolver = "2"
 
 [workspace.package]
@@ -46,6 +46,7 @@ tokio = { version = "1.43", features = ["full"] }
 tokio-util = "0.7"
 moka = { version = "0.12.16", features = ["future"] }
 async-trait = "0.1.92"
+futures-util = "0.3"
 
 # Security & Cryptography
 sha2 = "0.10.8"
@@ -57,6 +58,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 semver = { version = "1.0.28", features = ["serde"] }
 regex = "1.13.1"
 url = "2.5.4"
+similar = "2.7"
 
 # Logging & Diagnostics
 tracing = "0.1.44"
@@ -75,7 +77,7 @@ iced = { version = "0.14.0", default-features = false, features = [
     "wayland",
     "x11",
 ] }
-ashpd = { version = "0.13.13" }
+ashpd = { version = "0.13.13", features = ["settings"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # Testing & Mocking

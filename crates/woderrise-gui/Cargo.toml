@@ -6,18 +6,40 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-autobins = false
-autotests = false
 
 [lib]
+name = "woderrise_gui"
 path = "src/lib.rs"
 
+[[bin]]
+name = "woderrise"
+path = "src/main.rs"
+
 [dependencies]
+# Workspace domain crates
 woderrise-core.workspace = true
 woderrise-github.workspace = true
 woderrise-detect.workspace = true
 woderrise-transaction.workspace = true
+
+# GUI & Presentation Framework
+iced.workspace = true
+ashpd.workspace = true
+image.workspace = true
+
+# Async Runtime & Concurrency
 tokio.workspace = true
-tracing.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
+
+# System, Data & Serialization
+camino.workspace = true
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Diff Calculation Engine
+similar.workspace = true
