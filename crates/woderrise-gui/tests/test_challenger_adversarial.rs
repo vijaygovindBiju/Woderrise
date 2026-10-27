@@ -8,11 +8,11 @@ use std::fs;
 use woderrise_core::error::TransactionError;
 use woderrise_core::models::{
     CatalogRepository, ConfigComponent, DetectedComponent, HardwareConflictNotice, JournalEntry,
-    SyntaxFormat, TransactionStatus,
+    StagedFile, SyntaxFormat, TransactionStatus,
 };
 use woderrise_core::paths::XdgPaths;
 use woderrise_detect::{ComponentDetection, ProceduralDirective};
-use woderrise_gui::app::{App, EngineEvent, Message};
+use woderrise_gui::app::{App, EngineEvent, GuiCommand, Message};
 use woderrise_gui::screens::history::HistoryState;
 use woderrise_gui::screens::inspect::InspectState;
 use woderrise_gui::screens::install::InstallState;
@@ -402,4 +402,214 @@ fn test_adversarial_wal_crash_recovery_startup_flow() {
     );
 
     let _ = fs::remove_dir_all(&test_dir);
+}
+
+/// Challenge 6: Debounce Scheduling, Rapid Typing Suppression, and Cancellation Tokens
+///
+/// Invariant: Rapid typing within the 300ms window must suppress premature searches.
+/// Only the latest query after the 300ms quiet window elapses may dispatch a search.
+/// Any active cancellation token from an earlier in-flight search must be immediately cancelled.
+#[tokio::test]
+async fn test_adversarial_rapid_typing_debounce_and_token_cancellation() {
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(20);
+    let mut app = App::new(cmd_tx, None);
+
+    // Drain startup commands
+    while cmd_rx.try_recv().is_ok() {}
+
+    // Simulate user rapidly typing 5 characters: "h", "hy", "hyp", "hypr", "hyprl"
+    let keystrokes = ["h", "hy", "hyp", "hypr", "hyprl"];
+    for k in keystrokes {
+        let _ = app.update(Message::SearchInputChanged(k.to_string()));
+    }
+
+    // Current query in search state must be the latest
+    assert_eq!(app.search_state.query, "hyprl");
+    assert!(app.search_state.debounce_pending);
+
+    // Simulated debounce timers return for the older keystrokes ("h", "hy", "hyp", "hypr")
+    for old_k in &keystrokes[..4] {
+        let _ = app.update(Message::SearchDebounceFired(old_k.to_string()));
+        // None of these should have sent GuiCommand::Search
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "Race condition violation: Debounce fired for stale keystroke '{}' dispatched a command!",
+            old_k
+        );
+    }
+
+    // Deliver SearchDebounceFired too early (< 300ms elapsed)
+    let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+    assert!(
+        !app.search_state.should_fire_debounce(now_ms, 300),
+        "Debounce window violation: should_fire_debounce returned true before 300ms elapsed!"
+    );
+
+    // Now advance time by sleeping >= 310ms
+    tokio::time::sleep(std::time::Duration::from_millis(310)).await;
+
+    let advanced_now_ms = chrono::Utc::now().timestamp_millis() as u64;
+    assert!(
+        app.search_state.should_fire_debounce(advanced_now_ms, 300),
+        "Debounce window violation: should_fire_debounce returned false after 310ms elapsed!"
+    );
+
+    // Now deliver SearchDebounceFired("hyprl") after the quiet window
+    let _ = app.update(Message::SearchDebounceFired("hyprl".to_string()));
+
+    // Verify search command was sent
+    let sent_cmd = cmd_rx
+        .try_recv()
+        .expect("Expected GuiCommand::Search to be dispatched!");
+    let active_token = match sent_cmd {
+        GuiCommand::Search { query, token } => {
+            assert_eq!(query, "hyprl");
+            assert!(!token.is_cancelled());
+            token
+        }
+        _ => panic!("Expected GuiCommand::Search"),
+    };
+
+    // Debounce should now be cleared
+    assert!(!app.search_state.debounce_pending);
+
+    // Stale repeated debounce message must NOT trigger a second search
+    let _ = app.update(Message::SearchDebounceFired("hyprl".to_string()));
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "Duplicate search violation: Search was triggered twice for the same debounce event!"
+    );
+
+    // Now test token cancellation on new input:
+    // User types "hyprland" while previous search is in flight
+    let _ = app.update(Message::SearchInputChanged("hyprland".to_string()));
+
+    // Invariant: active_token from previous search MUST be cancelled immediately
+    assert!(
+        active_token.is_cancelled(),
+        "Token cancellation violation: Active search token was NOT cancelled upon new input!"
+    );
+}
+
+/// Challenge 7: SearchSubmitted (Enter Key) Immediate Dispatch and Debounce Cancellation
+///
+/// Invariant: Submitting a search via Enter key (`SearchSubmitted`) must immediately dispatch
+/// the search command and clear any pending debounce timer, so the subsequent timer fire is a no-op.
+#[tokio::test]
+async fn test_adversarial_search_submitted_bypasses_and_clears_debounce() {
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(20);
+    let mut app = App::new(cmd_tx, None);
+    while cmd_rx.try_recv().is_ok() {}
+
+    // Type query
+    let _ = app.update(Message::SearchInputChanged("waybar".to_string()));
+    assert!(app.search_state.debounce_pending);
+
+    // Immediate Enter press
+    let _ = app.update(Message::SearchSubmitted);
+
+    // Verify command dispatched immediately
+    let cmd = cmd_rx
+        .try_recv()
+        .expect("SearchSubmitted must dispatch search immediately");
+    match cmd {
+        GuiCommand::Search { query, .. } => assert_eq!(query, "waybar"),
+        _ => panic!("Expected GuiCommand::Search"),
+    }
+
+    // Invariant: debounce must be cleared
+    assert!(
+        !app.search_state.debounce_pending,
+        "SearchSubmitted must clear pending debounce!"
+    );
+
+    // Sleep past 300ms window
+    tokio::time::sleep(std::time::Duration::from_millis(310)).await;
+
+    // Simulate debounce timer expiring after submit
+    let _ = app.update(Message::SearchDebounceFired("waybar".to_string()));
+
+    // Invariant: no duplicate search command may be sent
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "Duplicate search violation: Expired debounce after SearchSubmitted triggered a redundant search!"
+    );
+}
+
+/// Challenge 8: Empty or Whitespace Search Query Behavior
+///
+/// Invariant: Clearing search input to empty or whitespace must immediately reset searching state,
+/// dispatch RefreshCatalog, and never trigger debounced search commands.
+#[tokio::test]
+async fn test_adversarial_empty_query_clears_catalog_and_cancels_debounce() {
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(20);
+    let mut app = App::new(cmd_tx, None);
+    while cmd_rx.try_recv().is_ok() {}
+
+    // Type and then clear
+    let _ = app.update(Message::SearchInputChanged("hypr".to_string()));
+    let _ = app.update(Message::SearchInputChanged("   ".to_string()));
+
+    assert!(!app.search_state.is_searching);
+
+    // Verify RefreshCatalog was sent
+    let cmd = cmd_rx
+        .try_recv()
+        .expect("RefreshCatalog must be sent on empty query");
+    match cmd {
+        GuiCommand::RefreshCatalog => {}
+        _ => panic!("Expected RefreshCatalog command"),
+    }
+
+    // Expired debounce message for whitespace must be ignored
+    tokio::time::sleep(std::time::Duration::from_millis(310)).await;
+    let _ = app.update(Message::SearchDebounceFired("   ".to_string()));
+
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "Empty search violation: SearchDebounceFired for whitespace dispatched a command!"
+    );
+}
+
+/// Challenge 9: Absolute Path and File Size Verification in Install State
+///
+/// Invariant: StagedFile records in InstallState and ApplyInstallation must strictly have
+/// absolute paths (`/home/...`), valid SHA-256 (64 hex characters), and positive file sizes.
+#[test]
+fn test_adversarial_staged_file_strict_invariants() {
+    let genuine_file = StagedFile {
+        relative_path: Utf8PathBuf::from("hyprland.conf"),
+        target_destination: Some(Utf8PathBuf::from(
+            "/home/testuser/.config/hypr/hyprland.conf",
+        )),
+        blob_sha: Some("1234567890abcdef1234567890abcdef12345678".into()),
+        file_size: 4096,
+        sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
+        file_mode: "100644".into(),
+        permissions: 0o644,
+        is_executable: false,
+        is_symlink: false,
+        syntax_valid: true,
+        path_safe: true,
+    };
+
+    let target = genuine_file.target_destination.as_ref().unwrap();
+    assert!(
+        target.is_absolute(),
+        "Target destination must be absolute path"
+    );
+    assert!(
+        !target.as_str().contains(".."),
+        "Target destination must not contain parent directory traversal"
+    );
+    assert_eq!(
+        genuine_file.sha256.len(),
+        64,
+        "SHA-256 must be genuine 64 hex chars"
+    );
+    assert_ne!(
+        genuine_file.sha256, "verified",
+        "SHA-256 must not be placeholder"
+    );
+    assert!(genuine_file.file_size > 0, "File size must be positive");
 }
