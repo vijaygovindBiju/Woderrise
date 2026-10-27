@@ -2057,15 +2057,19 @@ dependencies = [
 name = "woderrise-transaction"
 version = "0.1.0"
 dependencies = [
+ "camino",
  "chrono",
  "fs2",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "thiserror",
  "tracing",
+ "uuid",
  "walkdir",
  "woderrise-core",
+ "woderrise-detect",
 ]
 
 [[package]]
