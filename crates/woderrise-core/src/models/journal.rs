@@ -28,6 +28,55 @@ pub enum TransactionStatus {
     Failed,
 }
 
+impl TransactionStatus {
+    /// Check whether a transition from `self` to `next` is valid under the WAL state machine.
+    pub fn can_transition_to(&self, next: TransactionStatus) -> bool {
+        match self {
+            TransactionStatus::Staged => {
+                matches!(next, TransactionStatus::Applying | TransactionStatus::Failed)
+            }
+            TransactionStatus::Applying => {
+                matches!(
+                    next,
+                    TransactionStatus::Committed
+                        | TransactionStatus::Failed
+                        | TransactionStatus::RollingBack
+                        | TransactionStatus::RecoveredRollback
+                )
+            }
+            TransactionStatus::Committed => {
+                matches!(next, TransactionStatus::RollingBack)
+            }
+            TransactionStatus::RollingBack => {
+                matches!(
+                    next,
+                    TransactionStatus::RolledBack
+                        | TransactionStatus::Failed
+                        | TransactionStatus::RecoveredRollback
+                )
+            }
+            TransactionStatus::RolledBack
+            | TransactionStatus::RecoveredRollback
+            | TransactionStatus::Failed => false,
+        }
+    }
+
+    /// Returns true if this status represents an in-flight (non-terminal) transaction state.
+    pub fn is_in_flight(&self) -> bool {
+        matches!(
+            self,
+            TransactionStatus::Staged
+                | TransactionStatus::Applying
+                | TransactionStatus::RollingBack
+        )
+    }
+
+    /// Returns true if this status represents a terminal state.
+    pub fn is_terminal(&self) -> bool {
+        !self.is_in_flight()
+    }
+}
+
 /// Alias for transaction status in WAL state transitions.
 pub type ActiveTransactionState = TransactionStatus;
 
@@ -84,6 +133,21 @@ pub struct ActiveTransaction {
     pub operations: Vec<FileOperationRecord>,
 }
 
+impl ActiveTransaction {
+    /// Transition the active transaction to a new status according to WAL state machine rules.
+    pub fn transition_to(&mut self, next: TransactionStatus) -> crate::error::Result<()> {
+        if self.status.can_transition_to(next) {
+            self.status = next;
+            Ok(())
+        } else {
+            Err(crate::error::TransactionError::InvalidStateTransition {
+                from: format!("{:?}", self.status),
+                to: format!("{:?}", next),
+            }.into())
+        }
+    }
+}
+
 /// Historical transaction entry in the journal.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JournalEntry {
@@ -113,6 +177,23 @@ pub struct Journal {
     pub active_transaction: Option<ActiveTransaction>,
     #[serde(default)]
     pub transactions: Vec<JournalEntry>,
+}
+
+impl Journal {
+    /// Validate WAL invariants:
+    /// If `active_transaction` is present, it must be in an in-flight state (`Staged`, `Applying`, or `RollingBack`).
+    /// Terminal states (`Committed`, `RolledBack`, `RecoveredRollback`, `Failed`) must not be held in `active_transaction`.
+    pub fn validate_wal_invariants(&self) -> Result<(), String> {
+        if let Some(ref active) = self.active_transaction {
+            if active.status.is_terminal() {
+                return Err(format!(
+                    "Active transaction '{}' has terminal status '{:?}'; terminal transactions must be archived in history and active_transaction cleared",
+                    active.id, active.status
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for Journal {

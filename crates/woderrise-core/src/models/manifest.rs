@@ -62,6 +62,25 @@ pub struct StagedFile {
     pub path_safe: bool,
 }
 
+impl StagedFile {
+    /// Return true if this file represents a symbolic link based on `is_symlink` or Git tree mode `120000`.
+    pub fn is_symlink_mode(&self) -> bool {
+        self.is_symlink || self.file_mode == "120000" || self.file_mode.starts_with("120")
+    }
+
+    /// Return true if this file represents an executable or script.
+    pub fn is_script_or_executable(&self) -> bool {
+        if self.is_executable || self.file_mode == "100755" || self.file_mode.ends_with("755") {
+            return true;
+        }
+        if let Some(ext) = self.relative_path.extension() {
+            matches!(ext, "sh" | "bash" | "py" | "pl" | "zsh")
+        } else {
+            false
+        }
+    }
+}
+
 /// Security audit outcome for staged package files.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SecurityAuditReport {
@@ -100,12 +119,26 @@ impl StagingManifest {
         if !self.security_audit.passed {
             return Err("Security audit marked as failed".to_string());
         }
-        if self.security_audit.symlinks_rejected > 0 || self.security_audit.path_traversal_violations > 0 {
+        if self.security_audit.symlinks_rejected > 0
+            || self.security_audit.path_traversal_violations > 0
+        {
             return Err("Security audit has unresolved violations".to_string());
         }
+        if self.security_audit.scripts_detected > 0 {
+            return Err(format!(
+                "Security audit detected {} unapproved script(s)",
+                self.security_audit.scripts_detected
+            ));
+        }
         for file in &self.files {
-            if file.is_symlink {
+            if file.is_symlink_mode() {
                 return Err(format!("Symlink detected in file: {}", file.relative_path));
+            }
+            if file.is_script_or_executable() {
+                return Err(format!(
+                    "Executable script or script file detected: {}",
+                    file.relative_path
+                ));
             }
             if file.sha256.len() != 64 || !file.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err(format!("Invalid SHA-256 for file: {}", file.relative_path));

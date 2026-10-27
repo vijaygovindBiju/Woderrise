@@ -336,3 +336,72 @@ fn test_verification_report_and_conflict_status() {
         serde_json::from_str(&json).expect("Failed to deserialize report");
     assert_eq!(report, deserialized);
 }
+
+#[test]
+fn test_staging_manifest_git_symlink_mode_120000_bypass_rejected() {
+    let manifest = StagingManifest {
+        schema: None,
+        version: 1,
+        transaction_id: "tx_symlink_mode_120000".to_string(),
+        component: ConfigComponent::Hyprland,
+        source_repository: "attacker/repo".to_string(),
+        source_commit_sha: "badc0de".to_string(),
+        created_at: Utc::now(),
+        staging_dir: Utf8PathBuf::from("/tmp/staging/tx_symlink"),
+        target_dir: Utf8PathBuf::from("/home/user/.config/hypr"),
+        files: vec![StagedFile {
+            relative_path: Utf8PathBuf::from("stealth_symlink"),
+            target_destination: Some(Utf8PathBuf::from("/home/user/.config/hypr/stealth_symlink")),
+            blob_sha: None,
+            file_size: 24,
+            sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            file_mode: "120000".to_string(), // Mode 120000 Git symlink
+            permissions: 0o777,
+            is_executable: false,
+            is_symlink: false, // Adversarially omitted or false!
+            syntax_valid: true,
+            path_safe: true,
+        }],
+        security_audit: SecurityAuditReport {
+            scripts_detected: 0,
+            procedural_directives_neutralized: 0,
+            path_traversal_violations: 0,
+            symlinks_rejected: 0,
+            passed: true,
+        },
+    };
+
+    assert!(manifest.files[0].is_symlink_mode());
+    let err = manifest.validate_security_invariants().unwrap_err();
+    assert!(err.contains("Symlink detected"));
+}
+
+#[test]
+fn test_transaction_lifecycle_transitions_and_wal_invariants() {
+    let mut tx = ActiveTransaction {
+        id: "tx_test_lifecycle".to_string(),
+        timestamp: Utc::now(),
+        component: ConfigComponent::Hyprland,
+        status: TransactionStatus::Staged,
+        source_repo: "owner/repo".to_string(),
+        source_commit: "commit1".to_string(),
+        backup_directory: Utf8PathBuf::from("/tmp/backup"),
+        operations: vec![],
+    };
+
+    // Valid transitions
+    assert!(tx.transition_to(TransactionStatus::Applying).is_ok());
+    assert!(tx.transition_to(TransactionStatus::Committed).is_ok());
+
+    // Invalid transition from Committed back to Staged
+    assert!(tx.transition_to(TransactionStatus::Staged).is_err());
+
+    // ActiveTransaction with terminal status violates WAL invariants in Journal
+    let journal = Journal {
+        schema: None,
+        version: 1,
+        active_transaction: Some(tx),
+        transactions: vec![],
+    };
+    assert!(journal.validate_wal_invariants().is_err());
+}

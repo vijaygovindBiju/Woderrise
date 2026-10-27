@@ -174,3 +174,27 @@ fn test_validate_identifier_rules() {
     assert!(validate_identifier("bad$char").is_err());
     assert!(validate_identifier("slash/in/id").is_err());
 }
+
+#[test]
+fn test_target_containment_component_root_escape_traversal() {
+    let temp = TempDir::new().unwrap();
+    let base = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+    let paths = XdgPaths::custom(&base);
+
+    // Adversarial test: Starts with root prefix lexically, but has ParentDir .. escaping to autostart
+    let evil_target = base.join(".config/hypr/../autostart/bad.desktop");
+    let err = paths
+        .validate_target_containment(&evil_target, ConfigComponent::Hyprland)
+        .unwrap_err();
+
+    match err {
+        WoderriseError::Path(PathError::PathTraversalAttempted { token, .. }) => {
+            assert_eq!(token, "..");
+        }
+        other => panic!("Expected PathTraversalAttempted, got: {:?}", other),
+    }
+
+    // Direct path test
+    let direct_evil = Utf8Path::new("/home/user/.config/hypr/../autostart/bad.desktop");
+    assert!(paths.validate_target_containment(direct_evil, ConfigComponent::Hyprland).is_err());
+}

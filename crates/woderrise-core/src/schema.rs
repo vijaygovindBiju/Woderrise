@@ -105,9 +105,36 @@ pub fn write_bytes_durably(target_path: &Utf8Path, data: &[u8]) -> Result<()> {
             })
         })?;
 
-        if let Some(parent) = target_path.parent() {
-            if let Ok(dir) = File::open(parent) {
-                let _ = dir.sync_all();
+        let parent = target_path
+            .parent()
+            .filter(|p| !p.as_str().is_empty())
+            .unwrap_or(Utf8Path::new("."));
+
+        match File::open(parent) {
+            Ok(dir) => {
+                if let Err(source) = dir.sync_all() {
+                    let is_unsupported = source.kind() == std::io::ErrorKind::Unsupported
+                        || source.raw_os_error() == Some(22);
+                    if !is_unsupported {
+                        return Err(WoderriseError::Io(IoError::Fsync {
+                            path: parent.to_path_buf(),
+                            source,
+                        }));
+                    }
+                }
+            }
+            Err(source) => {
+                #[cfg(unix)]
+                {
+                    return Err(WoderriseError::Io(IoError::Fsync {
+                        path: parent.to_path_buf(),
+                        source,
+                    }));
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = source;
+                }
             }
         }
 

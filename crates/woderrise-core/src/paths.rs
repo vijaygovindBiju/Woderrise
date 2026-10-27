@@ -204,6 +204,37 @@ impl XdgPaths {
 
     /// Verify that an absolute target path is fully contained within the component root.
     pub fn validate_target_containment(&self, target: &Utf8Path, component: ConfigComponent) -> Result<()> {
+        let target_str = target.as_str();
+
+        // 1. Check for null bytes
+        if target_str.contains('\0') {
+            return Err(PathError::ContainsNullByte {
+                path: target_str.to_string(),
+            }.into());
+        }
+
+        // 2. Reject parent directory traversal (..) in any component
+        for comp in target.components() {
+            match comp {
+                camino::Utf8Component::ParentDir => {
+                    return Err(PathError::PathTraversalAttempted {
+                        path: target.to_string(),
+                        token: "..".to_string(),
+                    }.into());
+                }
+                camino::Utf8Component::Normal(segment)
+                    if segment == ".." || segment.contains("..") =>
+                {
+                    return Err(PathError::PathTraversalAttempted {
+                        path: target.to_string(),
+                        token: segment.to_string(),
+                    }.into());
+                }
+                _ => {}
+            }
+        }
+
+        // 3. Enforce strict component root pinning
         let root = self.component_root(component);
         if !target.starts_with(&root) {
             return Err(PathError::ComponentRootEscape {
@@ -300,7 +331,18 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
         }.into());
     }
 
-    // 3. Reject absolute paths and Windows drive letters
+    // 3. Detect and reject percent-encoded traversal tokens (%2e, %2f, %5c, %00)
+    let lower = path_str.to_ascii_lowercase();
+    for token in &["%2e", "%2f", "%5c", "%00"] {
+        if lower.contains(token) {
+            return Err(PathError::PathTraversalAttempted {
+                path: path_str.to_string(),
+                token: (*token).to_string(),
+            }.into());
+        }
+    }
+
+    // 4. Reject absolute paths and Windows drive letters
     if path.is_absolute() || path_str.starts_with('/') || path_str.starts_with('\\') {
         return Err(PathError::AbsolutePathNotAllowed {
             path: path_str.to_string(),
@@ -316,7 +358,7 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
         }
     }
 
-    // 4. Check for traversal tokens in path components
+    // 5. Check for traversal tokens in path components
     let mut clean_components = Vec::new();
     for comp in path.components() {
         match comp {
@@ -360,16 +402,22 @@ pub fn sanitize_relative_path(path: &Utf8Path) -> Result<Utf8PathBuf> {
 
 /// Strip well-known repository root prefixes to resolve to component-relative paths.
 /// E.g. `Configs/.config/hypr/hyprland.conf` -> `hyprland.conf` when component is Hyprland.
+/// Only strips the first matching component prefix to preserve nested directories
+/// of the same name (e.g. `dotfiles/hypr/themes/hypr/custom.conf` -> `themes/hypr/custom.conf`).
 pub fn strip_dotfile_repo_prefix<'a>(
     path: &'a Utf8Path,
     component_subpath: &str,
 ) -> &'a Utf8Path {
     let s = path.as_str();
-    let marker = format!("{}/", component_subpath);
-    if let Some(pos) = s.rfind(&marker) {
-        let remainder = &s[pos + marker.len()..];
-        Utf8Path::new(remainder)
-    } else {
-        path
+    let marker_start = format!("{}/", component_subpath);
+    let marker_slash = format!("/{}", marker_start);
+
+    if s.starts_with(&marker_start) {
+        return Utf8Path::new(&s[marker_start.len()..]);
     }
+    if let Some(pos) = s.find(&marker_slash) {
+        let remainder = &s[pos + marker_slash.len()..];
+        return Utf8Path::new(remainder);
+    }
+    path
 }

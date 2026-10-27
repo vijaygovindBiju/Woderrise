@@ -204,6 +204,12 @@ impl From<serde_json::Error> for SerializationError {
 /// Errors encountered during the 4-phase transaction lifecycle or WAL recovery.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TransactionError {
+    #[error("Invalid state transition from '{from}' to '{to}'")]
+    InvalidStateTransition {
+        from: String,
+        to: String,
+    },
+
     #[error("Active transaction '{active_tx_id}' is already in progress")]
     TransactionInProgress { active_tx_id: String },
 

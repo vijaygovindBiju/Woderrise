@@ -122,3 +122,34 @@ fn test_strip_dotfile_repo_prefix() {
         Utf8Path::new("hyprland.conf")
     );
 }
+
+#[test]
+fn test_reject_percent_encoded_traversal_and_null() {
+    let percent_cases = vec![
+        "%2e%2e/evil.conf",
+        "nested/%2e%2e/passwd",
+        "%2E%2E/upper.conf",
+        "file%00.conf",
+        "%00",
+        "dir/%2f/file",
+        "dir/%5c/file",
+    ];
+
+    for input in percent_cases {
+        let err = sanitize_relative_path(Utf8Path::new(input)).unwrap_err();
+        match err {
+            WoderriseError::Path(PathError::PathTraversalAttempted { .. }) => {}
+            other => panic!("Expected PathTraversalAttempted for '{}', got: {:?}", input, other),
+        }
+    }
+}
+
+#[test]
+fn test_strip_dotfile_repo_prefix_nested_repetition() {
+    // Nested component name repetition must NOT be stripped or flattened
+    let p_nested = Utf8Path::new("dotfiles/hypr/themes/hypr/custom.conf");
+    assert_eq!(
+        strip_dotfile_repo_prefix(p_nested, "hypr"),
+        Utf8Path::new("themes/hypr/custom.conf")
+    );
+}

@@ -39,9 +39,9 @@ pub type CompatibleComponent = DetectedComponent;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CatalogRepository {
     pub id: u64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub owner: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub repo: String,
     #[serde(default)]
     pub full_name: String,
