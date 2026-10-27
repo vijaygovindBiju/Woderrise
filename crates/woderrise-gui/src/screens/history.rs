@@ -45,7 +45,7 @@ pub struct HistoryState {
 impl HistoryState {
     pub fn from_journal_entries(entries: &[JournalEntry]) -> Self {
         let mut items = Vec::with_capacity(entries.len());
-        for entry in entries {
+        for entry in entries.iter().rev() {
             items.push(HistoryItem {
                 id: entry.id.clone(),
                 timestamp: entry.timestamp,

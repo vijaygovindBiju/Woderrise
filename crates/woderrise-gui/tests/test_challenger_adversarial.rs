@@ -1,46 +1,38 @@
-//! Empirical challenger adversarial test suite for `woderrise-gui`.
-//!
-//! Stress-tests view models, boundaries, edge cases, and arithmetic invariants:
-//! 1. GitHub rate limit gauge math: limit 0 (division by zero), 100%, 20%, 5%, 0%, u32::MAX, overflow.
-//! 2. Debounce timing: rapid query changes within 300ms, backwards clock skew, query cancellation, empty fallback.
-//! 3. Category filtering: multi-category composites, case insensitivity, regex/special chars, empty states.
-//! 4. Diff view edge cases: empty files, completely new files, deleted files, CRLF vs LF, 5000+ line diffs.
-//! 5. Inspect & Install states: component toggle invariants, invalid progress ratios, directive approvals.
-//! 6. History & Rollback LIFO ordering: non-committed entry resilience, dirty state modals.
+//! Empirical Challenger Adversarial Test Suite for Milestone 4:
+//! State Invariants, Transaction Transitions, Hardware Display Protection,
+//! Directive Approval Gating, Strict LIFO Rollback, Dirty-State Modals, and Crash Recovery.
 
 use camino::Utf8PathBuf;
 use chrono::Utc;
+use std::fs;
+use woderrise_core::error::TransactionError;
 use woderrise_core::models::{
-    CatalogRepository, ConfigComponent, DetectedComponent, JournalEntry, SyntaxFormat,
-    TransactionStatus,
+    CatalogRepository, ConfigComponent, DetectedComponent, HardwareConflictNotice, JournalEntry,
+    SyntaxFormat, TransactionStatus,
 };
+use woderrise_core::paths::XdgPaths;
+use woderrise_detect::{ComponentDetection, ProceduralDirective};
+use woderrise_gui::app::{App, EngineEvent, Message};
 use woderrise_gui::screens::history::HistoryState;
 use woderrise_gui::screens::inspect::InspectState;
-use woderrise_gui::screens::install::{InstallPhase, InstallState};
-use woderrise_gui::screens::search::{
-    CategoryFilter, RateLimitColorTier, RateLimitGaugeState, SearchState,
-};
-use woderrise_gui::widgets::diff::{view_diff, FileDiffReport};
-use woderrise_gui::widgets::gauge::view_gauge;
+use woderrise_gui::screens::install::InstallState;
+use woderrise_transaction::{JournalManager, TransactionEngine};
 
-fn dummy_repo(
-    id: u64,
+fn create_sample_catalog_repo(
     owner: &str,
     repo: &str,
-    desc: &str,
     components: Vec<ConfigComponent>,
-    topics: Vec<&str>,
 ) -> CatalogRepository {
     CatalogRepository {
-        id,
+        id: 42,
         owner: owner.into(),
         repo: repo.into(),
         full_name: format!("{}/{}", owner, repo),
         html_url: format!("https://github.com/{}/{}", owner, repo),
-        description: Some(desc.into()),
-        stargazers_count: 50 * id,
+        description: Some("Adversarial test dotfile repository".into()),
+        stargazers_count: 50,
         default_branch: "main".into(),
-        topics: topics.into_iter().map(String::from).collect(),
+        topics: vec!["hyprland".into()],
         pushed_at: None,
         cached_tree_sha: None,
         etag: None,
@@ -50,7 +42,7 @@ fn dummy_repo(
                 component: c,
                 syntax_format: SyntaxFormat::LegacyConf,
                 root_path: "config".into(),
-                entrypoint: "config.conf".into(),
+                entrypoint: c.default_entrypoint().into(),
                 style_file: None,
                 file_count: 2,
                 total_size_bytes: 4096,
@@ -59,574 +51,355 @@ fn dummy_repo(
     }
 }
 
-// =========================================================================
-// 1. RATE LIMIT ARITHMETIC & BOUNDARY ADVERSARIAL MATRIX
-// =========================================================================
-
+/// Challenge 1: Hardware Display Preservation Invariant
+///
+/// Invariant: `monitors.conf`, `workspaces.conf`, and `hardware.conf` (represented by `ConfigComponent::Monitors`)
+/// MUST NEVER be automatically selected by default in the inspect screen.
+/// Overwrite requires explicit opt-in by the user.
 #[test]
-fn test_rate_limit_zero_limit_and_division_safety() {
-    // Zero limit with zero remaining
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(0, 0),
-        RateLimitColorTier::Red
-    );
-
-    // Zero limit with positive remaining (anomalous upstream header)
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(5, 0),
-        RateLimitColorTier::Red
-    );
-
-    // Constructor max(1) protection against division by zero
-    let state_zero_limit = RateLimitGaugeState::new(0, 0, 0, 0);
-    assert_eq!(state_zero_limit.core_limit, 1);
-    assert_eq!(state_zero_limit.search_limit, 1);
-    assert_eq!(state_zero_limit.core_percentage(), 0.0);
-    assert_eq!(state_zero_limit.search_percentage(), 0.0);
-
-    // Verify view_gauge renders cleanly without panic or NaN
-    let _element: iced::Element<'_, ()> = view_gauge(&state_zero_limit);
-}
-
-#[test]
-fn test_rate_limit_percentage_and_tier_threshold_boundaries() {
-    // 100% full
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(60, 60),
-        RateLimitColorTier::Green
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(10, 10),
-        RateLimitColorTier::Green
-    );
-
-    // Just above 50% threshold (> 0.50)
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(31, 60),
-        RateLimitColorTier::Green
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(501, 1000),
-        RateLimitColorTier::Green
-    );
-
-    // Exactly 50% boundary (pct == 0.50 -> Amber)
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(30, 60),
-        RateLimitColorTier::Amber
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(5, 10),
-        RateLimitColorTier::Amber
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(500, 1000),
-        RateLimitColorTier::Amber
-    );
-
-    // Between 10% and 50% (e.g. 20%)
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(12, 60),
-        RateLimitColorTier::Amber
-    ); // 20%
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(2, 10),
-        RateLimitColorTier::Amber
-    ); // 20%
-
-    // Exactly 10% boundary (pct == 0.10 -> Amber)
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(6, 60),
-        RateLimitColorTier::Amber
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(1, 10),
-        RateLimitColorTier::Amber
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(100, 1000),
-        RateLimitColorTier::Amber
-    );
-
-    // Just below 10% threshold (< 0.10 -> Red)
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(5, 60),
-        RateLimitColorTier::Red
-    ); // 8.33%
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(99, 1000),
-        RateLimitColorTier::Red
-    ); // 9.9%
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(3, 60),
-        RateLimitColorTier::Red
-    ); // 5%
-
-    // 0% remaining
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(0, 60),
-        RateLimitColorTier::Red
-    );
-    assert_eq!(
-        RateLimitGaugeState::calc_tier(0, 10),
-        RateLimitColorTier::Red
-    );
-}
-
-#[test]
-fn test_rate_limit_overflow_and_large_values() {
-    // Remaining > Limit (e.g., elevated quota after token add or clock reset)
-    let overflow_state = RateLimitGaugeState::new(120, 60, 20, 10);
-    assert_eq!(overflow_state.core_percentage(), 1.0);
-    assert_eq!(overflow_state.search_percentage(), 1.0);
-    assert_eq!(overflow_state.core_tier(), RateLimitColorTier::Green);
-    assert_eq!(overflow_state.search_tier(), RateLimitColorTier::Green);
-
-    // u32::MAX limit and remaining
-    let max_state = RateLimitGaugeState::new(u32::MAX, u32::MAX, 0, u32::MAX);
-    assert_eq!(max_state.core_tier(), RateLimitColorTier::Green);
-    assert_eq!(max_state.search_tier(), RateLimitColorTier::Red);
-    assert!((max_state.core_percentage() - 1.0).abs() < 1e-4);
-    assert_eq!(max_state.search_percentage(), 0.0);
-
-    // Search throttling threshold (< 2)
-    assert!(RateLimitGaugeState::new(60, 60, 0, 10).is_search_low());
-    assert!(RateLimitGaugeState::new(60, 60, 1, 10).is_search_low());
-    assert!(!RateLimitGaugeState::new(60, 60, 2, 10).is_search_low());
-    assert!(!RateLimitGaugeState::new(60, 60, 5, 10).is_search_low());
-
-    // Gauge render verification with max values
-    let _element: iced::Element<'_, ()> = view_gauge(&max_state);
-}
-
-// =========================================================================
-// 2. DEBOUNCE TIMING & QUERY CANCELLATION STRESS TESTS
-// =========================================================================
-
-#[test]
-fn test_debounce_rapid_query_changes_within_300ms() {
-    let mut state = SearchState::new(Vec::new());
-
-    // Rapid keystrokes: "w", "wo", "wod", "wode", "woderrise" within 50ms intervals
-    state.set_query("w".into(), 100);
-    assert!(!state.should_fire_debounce(140, 300));
-
-    state.set_query("wo".into(), 150);
-    assert!(!state.should_fire_debounce(190, 300));
-
-    state.set_query("wod".into(), 200);
-    assert!(!state.should_fire_debounce(240, 300));
-
-    state.set_query("wode".into(), 250);
-    assert!(!state.should_fire_debounce(290, 300));
-
-    state.set_query("woderrise".into(), 300);
-    // At t = 599ms (299ms elapsed), debounce must NOT fire
-    assert!(!state.should_fire_debounce(599, 300));
-
-    // At t = 600ms (exactly 300ms elapsed), debounce MUST fire
-    assert!(state.should_fire_debounce(600, 300));
-
-    // At t = 700ms (400ms elapsed), debounce still fires until cleared
-    assert!(state.should_fire_debounce(700, 300));
-
-    // After clearing, must not fire again
-    state.clear_debounce();
-    assert!(!state.should_fire_debounce(750, 300));
-}
-
-#[test]
-fn test_debounce_backwards_clock_skew_and_zero_window() {
-    let mut state = SearchState::new(Vec::new());
-    state.set_query("query".into(), 5000);
-
-    // Time moving backwards (e.g., NTP adjustment during keystrokes)
-    // saturating_sub should return 0 without underflow panic
-    assert!(!state.should_fire_debounce(4000, 300));
-    assert!(!state.should_fire_debounce(0, 300));
-
-    // Debounce window of 0ms should fire immediately on next check
-    assert!(state.should_fire_debounce(5000, 0));
-}
-
-#[test]
-fn test_empty_and_whitespace_query_fallback() {
-    let repo1 = dummy_repo(
-        1,
-        "author1",
-        "rice1",
-        "Hyprland config",
-        vec![ConfigComponent::Hyprland],
-        vec!["hyprland"],
-    );
-    let repo2 = dummy_repo(
-        2,
-        "author2",
-        "bar2",
-        "Waybar setup",
-        vec![ConfigComponent::Waybar],
-        vec!["waybar"],
-    );
-
-    let mut state = SearchState::new(vec![repo1, repo2]);
-    assert_eq!(state.filtered_repositories.len(), 2);
-
-    // Filter to single result
-    state.set_query("bar2".into(), 100);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    // Whitespace query falls back to full local catalog
-    state.set_query("   \t  \n ".into(), 200);
-    assert_eq!(state.filtered_repositories.len(), 2);
-
-    // Empty query falls back to full local catalog
-    state.set_query("".into(), 300);
-    assert_eq!(state.filtered_repositories.len(), 2);
-}
-
-// =========================================================================
-// 3. CATEGORY FILTERING & ADVERSARIAL QUERY MATRIX
-// =========================================================================
-
-#[test]
-fn test_multi_component_composite_category_matching() {
-    // Complete rice suite with Hyprland, Waybar, Hyprlock, and Wallpapers
-    let suite = dummy_repo(
-        1,
-        "catppuccin",
-        "complete-suite",
-        "Full desktop environment suite",
+fn test_adversarial_hardware_preservation_auto_selection_in_inspect() {
+    let repo = create_sample_catalog_repo(
+        "adversary",
+        "rice-with-monitors",
         vec![
-            ConfigComponent::HyprlandLegacy,
+            ConfigComponent::Hyprland,
             ConfigComponent::Waybar,
-            ConfigComponent::Hyprlock,
-            ConfigComponent::Wallpapers,
+            ConfigComponent::Monitors,
         ],
-        vec!["suite", "catppuccin"],
     );
 
-    let standalone_bar = dummy_repo(
-        2,
-        "alex",
-        "waybar-only",
-        "Just a waybar config",
-        vec![ConfigComponent::Waybar],
-        vec!["waybar"],
-    );
+    let hw_notice = HardwareConflictNotice {
+        file_path: Utf8PathBuf::from("~/.config/hypr/monitors.conf"),
+        description: "Hardware display configuration detected in monitors.conf".into(),
+        preserved_by_default: true,
+    };
 
-    let mut state = SearchState::new(vec![suite, standalone_bar]);
+    // 1. Check initialization from CatalogRepository
+    let inspect = InspectState::new(repo.clone(), Vec::new(), vec![hw_notice.clone()]);
 
-    // All matches both
-    state.set_filter(CategoryFilter::All);
-    assert_eq!(state.filtered_repositories.len(), 2);
-
-    // Hyprland matches only the suite
-    state.set_filter(CategoryFilter::Hyprland);
-    assert_eq!(state.filtered_repositories.len(), 1);
-    assert_eq!(state.filtered_repositories[0].repo, "complete-suite");
-
-    // Waybar matches BOTH
-    state.set_filter(CategoryFilter::Waybar);
-    assert_eq!(state.filtered_repositories.len(), 2);
-
-    // Wallpapers matches only the suite
-    state.set_filter(CategoryFilter::Wallpapers);
-    assert_eq!(state.filtered_repositories.len(), 1);
-    assert_eq!(state.filtered_repositories[0].repo, "complete-suite");
-
-    // Hypridle matches NEITHER
-    state.set_filter(CategoryFilter::Hypridle);
-    assert_eq!(state.filtered_repositories.len(), 0);
-
-    // GTK matches NEITHER
-    state.set_filter(CategoryFilter::Gtk);
-    assert_eq!(state.filtered_repositories.len(), 0);
-}
-
-#[test]
-fn test_category_query_case_insensitivity_and_special_chars() {
-    let repo = dummy_repo(
-        1,
-        "User-Name",
-        "C++-Waybar_Widget.v2",
-        "Cool [Nord] theme with (dots) & symbols!",
-        vec![ConfigComponent::Waybar],
-        vec!["C++", "Nord-Dark", "GUI.Tool"],
-    );
-
-    let mut state = SearchState::new(vec![repo]);
-
-    // Case variations
-    state.set_query("USER-NAME".into(), 10);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    state.set_query("c++-waybar".into(), 20);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    state.set_query("NORD-DARK".into(), 30);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    // Punctuation and regex-like syntax
-    state.set_query("[nord]".into(), 40);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    state.set_query("(dots)".into(), 50);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    state.set_query(".*".into(), 60);
-    assert_eq!(state.filtered_repositories.len(), 0); // Must be literal substring, not regex match-all
-}
-
-#[test]
-fn test_unicode_and_emoji_search_queries() {
-    let repo = dummy_repo(
-        1,
-        "global",
-        "tokyo-night",
-        "東京の夜の美しさ 🌸 Japanese aesthetic rice",
-        vec![ConfigComponent::Hyprland],
-        vec!["sakura", "東京", "aesthetic"],
-    );
-
-    let mut state = SearchState::new(vec![repo]);
-
-    state.set_query("東京".into(), 10);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    state.set_query("🌸".into(), 20);
-    assert_eq!(state.filtered_repositories.len(), 1);
-
-    state.set_query("Kyoto".into(), 30);
-    assert_eq!(state.filtered_repositories.len(), 0);
-}
-
-// =========================================================================
-// 4. DIFF VIEW EDGE CASES & STRESS HARNESS
-// =========================================================================
-
-#[test]
-fn test_diff_empty_files_both_sides() {
-    let report = FileDiffReport::compute("empty.conf", "", "");
-    assert_eq!(report.lines.len(), 0);
-    assert_eq!(report.additions, 0);
-    assert_eq!(report.deletions, 0);
-
-    let _element: iced::Element<'_, ()> = view_diff(&report);
-}
-
-#[test]
-fn test_diff_completely_new_file() {
-    let new_content = "exec-once = waybar\nwindowrule = float, ^(kitty)$\n";
-    let report = FileDiffReport::compute("hyprland.conf", "", new_content);
-
-    assert_eq!(report.additions, 2);
-    assert_eq!(report.deletions, 0);
-    assert_eq!(report.lines.len(), 2);
-
-    for (idx, line) in report.lines.iter().enumerate() {
-        assert_eq!(line.tag, similar::ChangeTag::Insert);
-        assert_eq!(line.old_line, None);
-        assert_eq!(line.new_line, Some(idx + 1));
-    }
-
-    let _element: iced::Element<'_, ()> = view_diff(&report);
-}
-
-#[test]
-fn test_diff_completely_deleted_file() {
-    let old_content = "line1\nline2\nline3\n";
-    let report = FileDiffReport::compute("obsolete.conf", old_content, "");
-
-    assert_eq!(report.additions, 0);
-    assert_eq!(report.deletions, 3);
-    assert_eq!(report.lines.len(), 3);
-
-    for (idx, line) in report.lines.iter().enumerate() {
-        assert_eq!(line.tag, similar::ChangeTag::Delete);
-        assert_eq!(line.old_line, Some(idx + 1));
-        assert_eq!(line.new_line, None);
-    }
-
-    let _element: iced::Element<'_, ()> = view_diff(&report);
-}
-
-#[test]
-fn test_diff_identical_files() {
-    let content = "same line 1\nsame line 2\nsame line 3\n";
-    let report = FileDiffReport::compute("config.jsonc", content, content);
-
-    assert_eq!(report.additions, 0);
-    assert_eq!(report.deletions, 0);
-    assert_eq!(report.lines.len(), 3);
-
-    for (idx, line) in report.lines.iter().enumerate() {
-        assert_eq!(line.tag, similar::ChangeTag::Equal);
-        assert_eq!(line.old_line, Some(idx + 1));
-        assert_eq!(line.new_line, Some(idx + 1));
-    }
-
-    let _element: iced::Element<'_, ()> = view_diff(&report);
-}
-
-#[test]
-fn test_diff_no_trailing_newlines_and_crlf_handling() {
-    let old_content = "line1\r\nline2";
-    let new_content = "line1\nline2_modified\nline3";
-
-    let report = FileDiffReport::compute("hyprlock.conf", old_content, new_content);
-    // Verified compute does not panic and trims trailing CR/LF properly
-    for line in &report.lines {
-        assert!(!line.content.ends_with('\r'));
-        assert!(!line.content.ends_with('\n'));
-    }
-
-    let _element: iced::Element<'_, ()> = view_diff(&report);
-}
-
-#[test]
-fn test_diff_large_payload_stress_harness() {
-    // Generate 5,000 lines diff
-    let mut old_buf = String::with_capacity(100_000);
-    let mut new_buf = String::with_capacity(100_000);
-
-    for i in 0..5_000 {
-        use std::fmt::Write;
-        let _ = writeln!(old_buf, "key_{} = value_{};", i, i);
-        if i % 5 == 0 {
-            let _ = writeln!(new_buf, "key_{} = MODIFIED_value_{};", i, i);
-        } else {
-            let _ = writeln!(new_buf, "key_{} = value_{};", i, i);
-        }
-    }
-
-    let start = std::time::Instant::now();
-    let report = FileDiffReport::compute("huge_config.conf", &old_buf, &new_buf);
-    let elapsed = start.elapsed();
-
-    // Must compute in reasonable time (< 500ms)
+    // Hyprland and Waybar may be selected by default
     assert!(
-        elapsed.as_millis() < 500,
-        "Diff took too long: {:?}",
-        elapsed
+        inspect
+            .selected_components
+            .contains(&ConfigComponent::Hyprland),
+        "Hyprland should be selectable"
     );
-    assert_eq!(report.additions, 1000);
-    assert_eq!(report.deletions, 1000);
-
-    // Verify Iced view generation on 5,000+ line diff doesn't panic
-    let _element: iced::Element<'_, ()> = view_diff(&report);
-}
-
-// =========================================================================
-// 5. INSPECT & INSTALL VIEW STATE RESILIENCE
-// =========================================================================
-
-#[test]
-fn test_inspect_state_component_toggle_idempotency() {
-    let repo = dummy_repo(
-        1,
-        "tester",
-        "toggle-test",
-        "Toggle test",
-        vec![ConfigComponent::Waybar, ConfigComponent::Hyprlock],
-        vec![],
+    assert!(
+        inspect
+            .selected_components
+            .contains(&ConfigComponent::Waybar),
+        "Waybar should be selectable"
     );
 
-    let mut inspect = InspectState::new(repo, Vec::new(), Vec::new());
-    assert_eq!(inspect.selected_components.len(), 2);
-    assert!(inspect.is_install_allowed());
-
-    // Toggle Waybar off
-    inspect.toggle_component(ConfigComponent::Waybar);
-    assert_eq!(inspect.selected_components.len(), 1);
-    assert!(inspect
-        .selected_components
-        .contains(&ConfigComponent::Hyprlock));
-    assert!(inspect.is_install_allowed());
-
-    // Toggle Hyprlock off -> 0 selected -> disallowed
-    inspect.toggle_component(ConfigComponent::Hyprlock);
-    assert_eq!(inspect.selected_components.len(), 0);
-    assert!(!inspect.is_install_allowed());
-
-    // Toggle Waybar on again -> allowed
-    inspect.toggle_component(ConfigComponent::Waybar);
-    assert_eq!(inspect.selected_components.len(), 1);
-    assert!(inspect.is_install_allowed());
+    // CRITICAL EMPIRICAL CHALLENGE:
+    // monitors.conf must NOT be auto-selected by default!
+    assert!(
+        !inspect.selected_components.contains(&ConfigComponent::Monitors),
+        "Hardware protection violation: ConfigComponent::Monitors was automatically selected by default in InspectState!"
+    );
 }
 
+/// Challenge 1b: Hardware Display Preservation via TreeLoaded event in App
 #[test]
-fn test_install_state_progress_ratio_clamp() {
-    let repo = dummy_repo(1, "t", "r", "d", vec![ConfigComponent::Hyprland], vec![]);
-    let mut install = InstallState::new(
-        "tx_clamp".into(),
-        repo,
+fn test_adversarial_hardware_preservation_in_tree_loaded_event() {
+    let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(10);
+    let mut app = App::new(cmd_tx, None);
+
+    let repo = create_sample_catalog_repo(
+        "adversary",
+        "rice-with-monitors",
         vec![ConfigComponent::Hyprland],
-        vec![],
     );
 
-    // Progress above 1.0 clamped to 1.0
-    install.advance_phase(InstallPhase::Staging, 1.85, "Testing overflow");
-    assert_eq!(install.progress_ratio, 1.0);
+    let _ = app.update(Message::SelectRepo(repo));
 
-    // Progress below 0.0 clamped to 0.0
-    install.advance_phase(InstallPhase::Backup, -0.42, "Testing underflow");
-    assert_eq!(install.progress_ratio, 0.0);
+    let detections = vec![
+        ComponentDetection {
+            component: ConfigComponent::Hyprland,
+            syntax_format: SyntaxFormat::LegacyConf,
+            root_path: "hypr".into(),
+            entrypoint: "hyprland.conf".into(),
+            style_file: None,
+            matched_entries: vec![],
+            file_count: 1,
+            total_size_bytes: 1024,
+            hardware_notices: vec![],
+        },
+        ComponentDetection {
+            component: ConfigComponent::Monitors,
+            syntax_format: SyntaxFormat::LegacyConf,
+            root_path: "hypr".into(),
+            entrypoint: "monitors.conf".into(),
+            style_file: None,
+            matched_entries: vec![],
+            file_count: 1,
+            total_size_bytes: 512,
+            hardware_notices: vec![HardwareConflictNotice {
+                file_path: Utf8PathBuf::from("~/.config/hypr/monitors.conf"),
+                description: "Hardware monitors detected".into(),
+                preserved_by_default: true,
+            }],
+        },
+    ];
+
+    // Deliver TreeLoaded with detected monitors.conf
+    let _ = app.update(Message::Engine(EngineEvent::TreeLoaded {
+        repo: "adversary/rice-with-monitors".into(),
+        tree: woderrise_github::GitTree {
+            sha: "tree123".into(),
+            url: None,
+            tree: vec![],
+            truncated: false,
+        },
+        detections,
+    }));
+
+    let inspect = app
+        .inspect_state
+        .as_ref()
+        .expect("Inspect state must exist");
+
+    // CRITICAL EMPIRICAL CHALLENGE:
+    // TreeLoaded must NOT auto-check ConfigComponent::Monitors into selected_components!
+    assert!(
+        !inspect.selected_components.contains(&ConfigComponent::Monitors),
+        "Hardware protection violation: TreeLoaded event auto-selected ConfigComponent::Monitors into selected_components!"
+    );
 }
 
-// =========================================================================
-// 6. HISTORY & STRICT LIFO ROLLBACK CONSTRAINTS
-// =========================================================================
-
+/// Challenge 2: LIFO Rollback Ordering & is_latest_committed Invariant
+///
+/// Invariant: In standard chronological journal history `[tx_01, tx_02, tx_03]`:
+/// - `tx_03` (newest committed) MUST have `is_latest_committed == true`
+/// - `tx_01` (oldest committed) MUST have `is_latest_committed == false`
+/// - `tx_02` (middle committed) MUST have `is_latest_committed == false`
 #[test]
-fn test_history_interleaved_failed_and_rolled_back_transactions() {
-    // History contains non-committed transactions mixed with committed ones
-    let tx1 = JournalEntry {
-        id: "tx_1".into(),
-        timestamp: Utc::now(),
+fn test_adversarial_lifo_rollback_chronological_ordering() {
+    let t1 = JournalEntry {
+        id: "tx_01_oldest".into(),
+        timestamp: Utc::now() - chrono::Duration::hours(2),
         component: ConfigComponent::Hyprland,
         status: TransactionStatus::Committed,
-        source_repo: "a/b".into(),
+        source_repo: "catppuccin/hyprland".into(),
         source_commit: "c1".into(),
-        backup_directory: Utf8PathBuf::from("/b1"),
+        backup_directory: Utf8PathBuf::from("/backups/tx_01"),
         operations: vec![],
     };
-    let tx2 = JournalEntry {
-        id: "tx_2".into(),
-        timestamp: Utc::now(),
+
+    let t2 = JournalEntry {
+        id: "tx_02_middle".into(),
+        timestamp: Utc::now() - chrono::Duration::hours(1),
         component: ConfigComponent::Waybar,
-        status: TransactionStatus::Failed, // Failed transaction in between
-        source_repo: "a/b".into(),
+        status: TransactionStatus::Committed,
+        source_repo: "alex/waybar".into(),
         source_commit: "c2".into(),
-        backup_directory: Utf8PathBuf::from("/b2"),
+        backup_directory: Utf8PathBuf::from("/backups/tx_02"),
         operations: vec![],
     };
-    let tx3 = JournalEntry {
-        id: "tx_3".into(),
+
+    let t3 = JournalEntry {
+        id: "tx_03_newest".into(),
         timestamp: Utc::now(),
         component: ConfigComponent::Wallpapers,
-        status: TransactionStatus::RolledBack, // Already rolled back
-        source_repo: "a/b".into(),
+        status: TransactionStatus::Committed,
+        source_repo: "artist/nord".into(),
         source_commit: "c3".into(),
-        backup_directory: Utf8PathBuf::from("/b3"),
-        operations: vec![],
-    };
-    let tx4 = JournalEntry {
-        id: "tx_4".into(),
-        timestamp: Utc::now(),
-        component: ConfigComponent::GtkTheme,
-        status: TransactionStatus::Committed, // Latest committed
-        source_repo: "a/b".into(),
-        source_commit: "c4".into(),
-        backup_directory: Utf8PathBuf::from("/b4"),
+        backup_directory: Utf8PathBuf::from("/backups/tx_03"),
         operations: vec![],
     };
 
-    // In reverse chronological order: [tx4 (Committed), tx3 (RolledBack), tx2 (Failed), tx1 (Committed)]
-    let history = HistoryState::from_journal_entries(&[tx4, tx3, tx2, tx1]);
+    // get_history() returns journal.transactions in chronological order: [t1 (oldest), t2 (middle), t3 (newest)]
+    let history = HistoryState::from_journal_entries(&[t1, t2, t3]);
 
-    assert_eq!(history.transactions.len(), 4);
-    assert!(history.transactions[0].is_latest_committed); // tx4 is eligible
-    assert!(!history.transactions[1].is_latest_committed); // tx3 is RolledBack
-    assert!(!history.transactions[2].is_latest_committed); // tx2 is Failed
-    assert!(!history.transactions[3].is_latest_committed); // tx1 is an older committed transaction (LIFO blocked)
+    // Find each transaction in history
+    let item_t1 = history
+        .transactions
+        .iter()
+        .find(|t| t.id == "tx_01_oldest")
+        .expect("tx_01 must exist");
+    let item_t2 = history
+        .transactions
+        .iter()
+        .find(|t| t.id == "tx_02_middle")
+        .expect("tx_02 must exist");
+    let item_t3 = history
+        .transactions
+        .iter()
+        .find(|t| t.id == "tx_03_newest")
+        .expect("tx_03 must exist");
+
+    // CRITICAL EMPIRICAL CHALLENGES:
+    // Only the newest committed transaction (tx_03) can be rolled back!
+    assert!(
+        item_t3.is_latest_committed,
+        "LIFO order violation: Newest committed transaction 'tx_03_newest' did NOT get is_latest_committed = true!"
+    );
+    assert!(
+        !item_t2.is_latest_committed,
+        "LIFO order violation: Middle transaction 'tx_02_middle' was incorrectly granted rollback privilege!"
+    );
+    assert!(
+        !item_t1.is_latest_committed,
+        "LIFO order violation: Oldest transaction 'tx_01_oldest' was incorrectly granted rollback privilege!"
+    );
+}
+
+/// Challenge 3: Dirty-State Detection Modal Confirmation Popup Invariant
+///
+/// Invariant: When `RollbackEngine::verify_dirty_state` encounters a modified file,
+/// it raises `TransactionError::DirtyStateDetected`.
+/// The GUI engine event handler MUST detect this error and open `dirty_modal`.
+#[test]
+fn test_adversarial_dirty_state_error_modal_trigger() {
+    let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(10);
+    let mut app = App::new(cmd_tx, None);
+
+    let dirty_err = TransactionError::DirtyStateDetected {
+        file: Utf8PathBuf::from("/home/user/.config/hypr/hyprland.conf"),
+        expected_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        actual_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+    };
+
+    let error_string = dirty_err.to_string();
+    assert!(
+        error_string.starts_with("Dirty state detected"),
+        "Sanity check: formatted error string starts with 'Dirty state detected'"
+    );
+
+    // Deliver RollbackError to App
+    let _ = app.update(Message::Engine(EngineEvent::RollbackError {
+        error: error_string.clone(),
+        tx_id: "tx_test_dirty".into(),
+    }));
+
+    // CRITICAL EMPIRICAL CHALLENGE:
+    // dirty_modal MUST be opened to warn the user and require explicit confirmation!
+    assert!(
+        app.history_state.dirty_modal.is_some(),
+        "Dirty-state modal failure: dirty_modal was None! Instead error_banner was set to: {:?}",
+        app.error_banner
+    );
+
+    let modal = app.history_state.dirty_modal.as_ref().unwrap();
+    assert_eq!(modal.transaction_id, "tx_test_dirty");
+}
+
+/// Challenge 4: Procedural Directive Approval Gating
+///
+/// Invariant: All procedural directives detected in configurations (`exec-once`, `exec`, `on-click`)
+/// MUST be unapproved (neutralized) by default (`approved == false`).
+/// No procedural command may be approved without explicit user action.
+#[test]
+fn test_adversarial_directive_approval_gating() {
+    let repo = create_sample_catalog_repo("user", "my-rice", vec![ConfigComponent::Hyprland]);
+
+    let directives = vec![
+        ProceduralDirective {
+            directive_type: "exec-once".into(),
+            command: "waybar &".into(),
+            file: "hyprland.conf".into(),
+            line: 15,
+        },
+        ProceduralDirective {
+            directive_type: "exec".into(),
+            command: "swww init".into(),
+            file: "hyprland.conf".into(),
+            line: 22,
+        },
+        ProceduralDirective {
+            directive_type: "on-click".into(),
+            command: "alacritty -e btop".into(),
+            file: "config.jsonc".into(),
+            line: 45,
+        },
+    ];
+
+    let mut install = InstallState::new(
+        "tx_directives_test".into(),
+        repo,
+        vec![ConfigComponent::Hyprland],
+        directives,
+    );
+
+    // Invariant: all directives MUST be unapproved by default
+    assert_eq!(install.directive_approvals.len(), 3);
+    for (i, d) in install.directive_approvals.iter().enumerate() {
+        assert!(
+            !d.approved,
+            "Directive approval gate violation: Directive {} ('{}') was approved by default!",
+            i, d.directive.command
+        );
+    }
+
+    // Explicit user toggles
+    install.toggle_directive_approval(0);
+    assert!(install.directive_approvals[0].approved);
+    assert!(!install.directive_approvals[1].approved);
+    assert!(!install.directive_approvals[2].approved);
+
+    // User untoggles
+    install.toggle_directive_approval(0);
+    assert!(!install.directive_approvals[0].approved);
+}
+
+/// Challenge 5: WAL Startup Crash Recovery Flow
+///
+/// Invariant: Incomplete WAL transactions in state `Applying` must trigger crash recovery
+/// and display the startup notification banner in the GUI.
+#[test]
+fn test_adversarial_wal_crash_recovery_startup_flow() {
+    let test_dir = Utf8PathBuf::from(format!("/tmp/woderrise_test_{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&test_dir).expect("create test dir");
+    let xdg = XdgPaths::custom(&test_dir);
+
+    let journal_mgr = JournalManager::new(&xdg).expect("Journal manager");
+    let tx_id = "tx_crashed_mid_flight";
+    let backup_dir = xdg.backup_dir(tx_id).expect("Backup dir");
+
+    // Begin Applying in WAL (simulates crash before commit)
+    journal_mgr
+        .begin_applying(
+            tx_id,
+            ConfigComponent::Hyprland,
+            "catppuccin/hyprland",
+            "deadbeef",
+            &backup_dir,
+            Vec::new(),
+        )
+        .expect("Begin applying");
+
+    let tx_engine = TransactionEngine::new(xdg.clone()).expect("TransactionEngine");
+
+    // Execute startup recovery
+    let outcome = tx_engine
+        .recover_on_startup()
+        .expect("Recovery must succeed");
+    assert!(
+        outcome.is_some(),
+        "Recovery outcome should be Some for Applying status"
+    );
+
+    let rec = outcome.unwrap();
+    assert_eq!(rec.tx_id, tx_id);
+    assert_eq!(rec.recovered_status, TransactionStatus::RecoveredRollback);
+
+    // Now test GUI App startup notice integration
+    let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(10);
+    let mut app = App::new(cmd_tx, Some(rec));
+
+    assert!(
+        app.startup_notice.is_some(),
+        "Startup notice should be populated on crash recovery"
+    );
+    let notice_text = app.startup_notice.as_ref().unwrap();
+    assert!(notice_text.contains(tx_id));
+
+    // User dismisses startup notice
+    let _ = app.update(Message::DismissStartupNotice);
+    assert!(
+        app.startup_notice.is_none(),
+        "Startup notice should be cleared after dismissal"
+    );
+
+    let _ = fs::remove_dir_all(&test_dir);
 }

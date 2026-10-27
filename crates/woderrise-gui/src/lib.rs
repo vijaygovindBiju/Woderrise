@@ -265,18 +265,31 @@ pub async fn run_worker(
                             let staged_files: Vec<StagedFile> = report
                                 .target_mappings
                                 .iter()
-                                .map(|m| StagedFile {
-                                    relative_path: m.relative_path.clone(),
-                                    target_destination: Some(m.target_destination.clone()),
-                                    blob_sha: Some(m.blob_sha.clone()),
-                                    file_size: 100,
-                                    sha256: m.expected_sha256.clone(),
-                                    file_mode: m.git_file_mode.clone(),
-                                    permissions: 0o644,
-                                    is_executable: false,
-                                    is_symlink: false,
-                                    syntax_valid: true,
-                                    path_safe: true,
+                                .map(|m| {
+                                    let file_size = staged_entries
+                                        .iter()
+                                        .find(|(e, _)| {
+                                            e.path == m.relative_path || e.sha == m.blob_sha
+                                        })
+                                        .map(|(_, b)| b.len() as u64)
+                                        .unwrap_or(0);
+                                    let is_executable = m.git_file_mode == "100755"
+                                        || m.git_file_mode.ends_with("755");
+                                    let is_symlink = m.git_file_mode == "120000"
+                                        || m.git_file_mode.starts_with("120");
+                                    StagedFile {
+                                        relative_path: m.relative_path.clone(),
+                                        target_destination: Some(m.target_destination.clone()),
+                                        blob_sha: Some(m.blob_sha.clone()),
+                                        file_size,
+                                        sha256: m.expected_sha256.clone(),
+                                        file_mode: m.git_file_mode.clone(),
+                                        permissions: if is_executable { 0o755 } else { 0o644 },
+                                        is_executable,
+                                        is_symlink,
+                                        syntax_valid: true,
+                                        path_safe: true,
+                                    }
                                 })
                                 .collect();
 

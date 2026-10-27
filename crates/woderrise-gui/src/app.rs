@@ -202,6 +202,7 @@ pub enum Message {
 
     // Search screen interactions
     SearchInputChanged(String),
+    SearchDebounceFired(String),
     SearchSubmitted,
     FilterSelected(CategoryFilter),
     SelectRepo(CatalogRepository),
@@ -335,11 +336,39 @@ impl App {
                 if query.trim().is_empty() {
                     self.search_state.is_searching = false;
                     let _ = self.cmd_tx.try_send(GuiCommand::RefreshCatalog);
+                    return Task::none();
+                } else {
+                    let q = query.clone();
+                    return Task::perform(
+                        async move {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                            q
+                        },
+                        Message::SearchDebounceFired,
+                    );
+                }
+            }
+
+            Message::SearchDebounceFired(debounced_query) => {
+                let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+                if self.search_state.query == debounced_query
+                    && self.search_state.should_fire_debounce(now_ms, 300)
+                    && !debounced_query.trim().is_empty()
+                {
+                    self.search_state.clear_debounce();
+                    let token = tokio_util::sync::CancellationToken::new();
+                    self.search_cancel_token = Some(token.clone());
+                    self.search_state.is_searching = true;
+                    let _ = self.cmd_tx.try_send(GuiCommand::Search {
+                        query: debounced_query,
+                        token,
+                    });
                 }
             }
 
             Message::SearchSubmitted => {
                 if !self.search_state.query.trim().is_empty() {
+                    self.search_state.clear_debounce();
                     let token = tokio_util::sync::CancellationToken::new();
                     self.search_cancel_token = Some(token.clone());
                     self.search_state.is_searching = true;
@@ -399,26 +428,54 @@ impl App {
 
                     // Collect matched tree entries for selected components
                     let mut entries = Vec::new();
-                    for comp in &inspect.detected_components {
-                        if inspect.selected_components.contains(&comp.component) {
-                            entries.push(TreeEntry::new(
-                                comp.entrypoint.clone(),
-                                "100644",
-                                "blob",
-                                comp.root_path.clone(),
-                                Some(comp.total_size_bytes),
-                            ));
-                            if let Some(style) = &comp.style_file {
+                    for detection in &inspect.raw_detections {
+                        if inspect.selected_components.contains(&detection.component) {
+                            if !detection.matched_entries.is_empty() {
+                                entries.extend(detection.matched_entries.clone());
+                            } else {
                                 entries.push(TreeEntry::new(
-                                    style.clone(),
+                                    detection.entrypoint.clone(),
                                     "100644",
                                     "blob",
-                                    comp.root_path.clone(),
-                                    None,
+                                    "0000000000000000000000000000000000000000",
+                                    Some(detection.total_size_bytes),
                                 ));
+                                if let Some(style) = &detection.style_file {
+                                    entries.push(TreeEntry::new(
+                                        style.clone(),
+                                        "100644",
+                                        "blob",
+                                        "0000000000000000000000000000000000000000",
+                                        None,
+                                    ));
+                                }
                             }
                         }
                     }
+                    if entries.is_empty() {
+                        for comp in &inspect.detected_components {
+                            if inspect.selected_components.contains(&comp.component) {
+                                entries.push(TreeEntry::new(
+                                    comp.entrypoint.clone(),
+                                    "100644",
+                                    "blob",
+                                    "0000000000000000000000000000000000000000",
+                                    Some(comp.total_size_bytes),
+                                ));
+                                if let Some(style) = &comp.style_file {
+                                    entries.push(TreeEntry::new(
+                                        style.clone(),
+                                        "100644",
+                                        "blob",
+                                        "0000000000000000000000000000000000000000",
+                                        None,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    entries.sort_by(|a, b| a.path.cmp(&b.path));
+                    entries.dedup_by(|a, b| a.path == b.path);
 
                     let primary_comp = selected
                         .first()
@@ -455,23 +512,7 @@ impl App {
                         "Creating pre-install backup snapshot...",
                     );
 
-                    let staged_files: Vec<StagedFile> = install
-                        .installed_files
-                        .iter()
-                        .map(|p| StagedFile {
-                            relative_path: p.clone(),
-                            target_destination: Some(p.clone()),
-                            blob_sha: None,
-                            file_size: 100,
-                            sha256: "verified".into(),
-                            file_mode: "100644".into(),
-                            permissions: 0o644,
-                            is_executable: false,
-                            is_symlink: false,
-                            syntax_valid: true,
-                            path_safe: true,
-                        })
-                        .collect();
+                    let staged_files = install.staged_files.clone();
 
                     let _ = self.cmd_tx.try_send(GuiCommand::ApplyInstallation {
                         tx_id: install.transaction_id.clone(),
@@ -577,8 +618,11 @@ impl App {
                 if let Some(inspect) = &mut self.inspect_state {
                     inspect.is_loading = false;
                     inspect.detected_components = detections.iter().map(|d| d.into()).collect();
+                    inspect.raw_detections = detections.clone();
                     for d in &detections {
-                        inspect.selected_components.insert(d.component);
+                        if d.component != ConfigComponent::Monitors {
+                            inspect.selected_components.insert(d.component);
+                        }
                         inspect.hardware_notices.extend(d.hardware_notices.clone());
                     }
                 }
@@ -626,6 +670,7 @@ impl App {
 
             EngineEvent::StagingCompleted { staged_files, .. } => {
                 if let Some(install) = &mut self.install_state {
+                    install.staged_files = staged_files.clone();
                     install.installed_files = staged_files
                         .iter()
                         .map(|s| s.relative_path.clone())
@@ -692,9 +737,18 @@ impl App {
 
             EngineEvent::RollbackError { error, tx_id } => {
                 self.history_state.is_rolling_back = false;
-                if error.contains("dirty") || error.contains("modified") {
-                    self.history_state
-                        .open_dirty_modal(tx_id, vec![Utf8PathBuf::from("modified_dotfile")]);
+                let err_lower = error.to_lowercase();
+                if err_lower.contains("dirty") || err_lower.contains("modified") {
+                    let file_path = if let Some(start) = error.find('\'') {
+                        if let Some(end) = error[start + 1..].find('\'') {
+                            Utf8PathBuf::from(&error[start + 1..start + 1 + end])
+                        } else {
+                            Utf8PathBuf::from("modified_dotfile")
+                        }
+                    } else {
+                        Utf8PathBuf::from("modified_dotfile")
+                    };
+                    self.history_state.open_dirty_modal(tx_id, vec![file_path]);
                 } else {
                     self.error_banner = Some(format!("Rollback failed: {}", error));
                 }

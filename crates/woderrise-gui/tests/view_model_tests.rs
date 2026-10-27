@@ -9,10 +9,12 @@ use camino::Utf8PathBuf;
 use chrono::Utc;
 use iced::Theme;
 use woderrise_core::models::{
-    CatalogRepository, ConfigComponent, DetectedComponent, HardwareConflictNotice, JournalEntry,
-    SyntaxFormat, TransactionStatus,
+    CatalogRepository, ConfigComponent, ConflictStatus, DetectedComponent, HardwareConflictNotice,
+    JournalEntry, SecurityAuditReport, StagedFile, SyntaxFormat, TargetMapping, TransactionStatus,
+    VerificationReport,
 };
-use woderrise_detect::ProceduralDirective;
+use woderrise_detect::{ComponentDetection, ProceduralDirective, TreeEntry};
+use woderrise_gui::app::{App, EngineEvent, GuiCommand, Message, Screen};
 use woderrise_gui::screens::history::HistoryState;
 use woderrise_gui::screens::inspect::InspectState;
 use woderrise_gui::screens::install::{InstallPhase, InstallState};
@@ -456,8 +458,8 @@ fn test_history_lifo_rollback_button_enablement_and_dirty_modal() {
         operations: vec![],
     };
 
-    // LIFO reverse chronological: [t3 (newest committed), t2 (older committed), t1 (rolled back)]
-    let mut history = HistoryState::from_journal_entries(&[t3, t2, t1]);
+    // Chronological journal: [t1 (rolled back), t2 (older committed), t3 (newest committed)]
+    let mut history = HistoryState::from_journal_entries(&[t1, t2, t3]);
     assert_eq!(history.transactions.len(), 3);
 
     // Strict LIFO check: only the newest committed transaction (t3 at idx 0) has rollback enabled
@@ -505,4 +507,256 @@ async fn test_portal_theme_mapping_and_headless_fallback() {
     // 3. Headless fallback test (executes without D-Bus session in CI, safely returns Theme::Dark)
     let fallback_theme = fetch_portal_theme().await;
     assert_eq!(fallback_theme, Theme::Dark);
+}
+
+#[tokio::test]
+async fn test_app_installation_flow_genuine_staged_files() {
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(20);
+    let mut app = App::new(cmd_tx, None);
+    // Drain startup commands (LoadHistory, FetchRateLimits, RefreshCatalog)
+    while cmd_rx.try_recv().is_ok() {}
+
+    let repo = create_sample_repo(
+        10,
+        "hyprland-community",
+        "rice-deluxe",
+        "Genuine dotfiles test repository",
+        ConfigComponent::Hyprland,
+        vec!["hyprland", "rice"],
+    );
+
+    // 1. Select repository -> transitions to Inspect screen
+    let _ = app.update(Message::SelectRepo(repo.clone()));
+    assert_eq!(app.active_screen, Screen::Inspect);
+    let cmd = cmd_rx
+        .recv()
+        .await
+        .expect("InspectPackage command expected");
+    match cmd {
+        GuiCommand::InspectPackage { repo: r, .. } => {
+            assert_eq!(r, "hyprland-community/rice-deluxe");
+        }
+        _ => panic!("Expected InspectPackage command"),
+    }
+
+    // 2. Deliver TreeLoaded event with Hyprland and Monitors components
+    let detections = vec![
+        ComponentDetection {
+            component: ConfigComponent::Hyprland,
+            syntax_format: SyntaxFormat::LegacyConf,
+            root_path: "hypr".into(),
+            entrypoint: "hyprland.conf".into(),
+            style_file: None,
+            matched_entries: vec![
+                TreeEntry::new(
+                    "hyprland.conf",
+                    "100644",
+                    "blob",
+                    "aaaabbbbccccddddeeeeffff0000111122223333",
+                    Some(2048),
+                ),
+                TreeEntry::new(
+                    "keybinds.conf",
+                    "100644",
+                    "blob",
+                    "1111222233334444555566667777888899990000",
+                    Some(1024),
+                ),
+            ],
+            file_count: 2,
+            total_size_bytes: 3072,
+            hardware_notices: vec![],
+        },
+        ComponentDetection {
+            component: ConfigComponent::Monitors,
+            syntax_format: SyntaxFormat::LegacyConf,
+            root_path: "hypr".into(),
+            entrypoint: "monitors.conf".into(),
+            style_file: None,
+            matched_entries: vec![TreeEntry::new(
+                "monitors.conf",
+                "100644",
+                "blob",
+                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                Some(512),
+            )],
+            file_count: 1,
+            total_size_bytes: 512,
+            hardware_notices: vec![HardwareConflictNotice {
+                file_path: Utf8PathBuf::from("~/.config/hypr/monitors.conf"),
+                description: "Hardware monitor configuration".into(),
+                preserved_by_default: true,
+            }],
+        },
+    ];
+
+    let _ = app.update(Message::Engine(EngineEvent::TreeLoaded {
+        repo: "hyprland-community/rice-deluxe".into(),
+        tree: woderrise_github::GitTree {
+            sha: "tree_root_sha".into(),
+            url: None,
+            tree: vec![],
+            truncated: false,
+        },
+        detections,
+    }));
+
+    // Verify hardware display preservation invariant
+    let inspect = app.inspect_state.as_ref().unwrap();
+    assert!(inspect
+        .selected_components
+        .contains(&ConfigComponent::Hyprland));
+    assert!(!inspect
+        .selected_components
+        .contains(&ConfigComponent::Monitors));
+
+    // 3. Initiate installation -> transitions to Install screen & sends StagePackage command
+    let _ = app.update(Message::InitiateInstall);
+    assert_eq!(app.active_screen, Screen::Install);
+
+    let stage_cmd = cmd_rx.recv().await.expect("StagePackage command expected");
+    let tx_id = match stage_cmd {
+        GuiCommand::StagePackage {
+            tx_id,
+            component,
+            repo: r,
+            entries,
+            ..
+        } => {
+            assert_eq!(component, ConfigComponent::Hyprland);
+            assert_eq!(r, "hyprland-community/rice-deluxe");
+            // Multi-file preservation: includes both hyprland.conf and keybinds.conf
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].path, "hyprland.conf");
+            assert_eq!(entries[1].path, "keybinds.conf");
+            tx_id
+        }
+        _ => panic!("Expected StagePackage command"),
+    };
+
+    // 4. Staging finishes -> delivers StagingCompleted event with genuine StagedFile records
+    let expected_dest_hyprland = Utf8PathBuf::from("/home/user/.config/hypr/hyprland.conf");
+    let expected_dest_keybinds = Utf8PathBuf::from("/home/user/.config/hypr/keybinds.conf");
+    let genuine_staged_files = vec![
+        StagedFile {
+            relative_path: Utf8PathBuf::from("hyprland.conf"),
+            target_destination: Some(expected_dest_hyprland.clone()),
+            blob_sha: Some("aaaabbbbccccddddeeeeffff0000111122223333".into()),
+            file_size: 2048,
+            sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
+            file_mode: "100644".into(),
+            permissions: 0o644,
+            is_executable: false,
+            is_symlink: false,
+            syntax_valid: true,
+            path_safe: true,
+        },
+        StagedFile {
+            relative_path: Utf8PathBuf::from("keybinds.conf"),
+            target_destination: Some(expected_dest_keybinds.clone()),
+            blob_sha: Some("1111222233334444555566667777888899990000".into()),
+            file_size: 1024,
+            sha256: "ca978112ca1bbdcafac231b39a23dc4da7860814961409733a9e868278c993f9".into(),
+            file_mode: "100644".into(),
+            permissions: 0o644,
+            is_executable: false,
+            is_symlink: false,
+            syntax_valid: true,
+            path_safe: true,
+        },
+    ];
+
+    let _ = app.update(Message::Engine(EngineEvent::StagingCompleted {
+        tx_id: tx_id.clone(),
+        report: VerificationReport {
+            transaction_id: tx_id.clone(),
+            component: ConfigComponent::Hyprland,
+            total_files: 2,
+            total_bytes: 3072,
+            target_mappings: vec![
+                TargetMapping {
+                    component: ConfigComponent::Hyprland,
+                    relative_path: Utf8PathBuf::from("hyprland.conf"),
+                    blob_sha: "aaaabbbbccccddddeeeeffff0000111122223333".into(),
+                    target_destination: expected_dest_hyprland.clone(),
+                    git_file_mode: "100644".into(),
+                    expected_sha256:
+                        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
+                    is_hardware_protected: false,
+                    conflict_status: ConflictStatus::NewFile,
+                },
+                TargetMapping {
+                    component: ConfigComponent::Hyprland,
+                    relative_path: Utf8PathBuf::from("keybinds.conf"),
+                    blob_sha: "1111222233334444555566667777888899990000".into(),
+                    target_destination: expected_dest_keybinds.clone(),
+                    git_file_mode: "100644".into(),
+                    expected_sha256:
+                        "ca978112ca1bbdcafac231b39a23dc4da7860814961409733a9e868278c993f9".into(),
+                    is_hardware_protected: false,
+                    conflict_status: ConflictStatus::NewFile,
+                },
+            ],
+            security_audit: SecurityAuditReport {
+                scripts_detected: 0,
+                procedural_directives_neutralized: 0,
+                path_traversal_violations: 0,
+                symlinks_rejected: 0,
+                passed: true,
+            },
+            hardware_conflicts: vec![],
+            passed: true,
+        },
+        staged_files: genuine_staged_files.clone(),
+    }));
+
+    // Verify StagedFiles are preserved in InstallState
+    let install = app.install_state.as_ref().unwrap();
+    assert_eq!(install.current_phase, InstallPhase::PendingApproval);
+    assert_eq!(install.staged_files.len(), 2);
+    assert_eq!(
+        install.staged_files[0].target_destination,
+        Some(expected_dest_hyprland.clone())
+    );
+
+    // 5. User confirms installation -> ApplyInstallation command must receive genuine StagedFiles
+    let _ = app.update(Message::ConfirmInstall);
+    let apply_cmd = cmd_rx
+        .recv()
+        .await
+        .expect("ApplyInstallation command expected");
+    match apply_cmd {
+        GuiCommand::ApplyInstallation {
+            tx_id: applied_tx_id,
+            component,
+            repo: applied_repo,
+            staged_files,
+            ..
+        } => {
+            assert_eq!(applied_tx_id, tx_id);
+            assert_eq!(component, ConfigComponent::Hyprland);
+            assert_eq!(applied_repo, "hyprland-community/rice-deluxe");
+            assert_eq!(staged_files.len(), 2);
+
+            // ABSOLUTE DESTINATION INTEGRITY:
+            assert_eq!(
+                staged_files[0].target_destination,
+                Some(expected_dest_hyprland)
+            );
+            assert_eq!(
+                staged_files[1].target_destination,
+                Some(expected_dest_keybinds)
+            );
+
+            // REAL SHA INTEGRITY (not dummy "verified"):
+            assert_ne!(staged_files[0].sha256, "verified");
+            assert_eq!(
+                staged_files[0].sha256,
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            );
+            assert_eq!(staged_files[0].file_size, 2048);
+            assert_eq!(staged_files[1].file_size, 1024);
+        }
+        _ => panic!("Expected ApplyInstallation command"),
+    }
 }

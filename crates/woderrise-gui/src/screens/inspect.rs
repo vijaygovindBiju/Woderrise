@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use woderrise_core::models::{
     CatalogRepository, ConfigComponent, DetectedComponent, HardwareConflictNotice,
 };
-use woderrise_detect::ProceduralDirective;
+use woderrise_detect::{ComponentDetection, ProceduralDirective};
 
 use crate::widgets::diff::{view_diff, FileDiffReport};
 
@@ -28,6 +28,7 @@ pub struct InspectState {
     pub repository: CatalogRepository,
     pub detected_components: Vec<DetectedComponent>,
     pub selected_components: HashSet<ConfigComponent>,
+    pub raw_detections: Vec<ComponentDetection>,
     pub procedural_directives: Vec<ProceduralDirective>,
     pub hardware_notices: Vec<HardwareConflictNotice>,
     pub active_tab: InspectTab,
@@ -47,13 +48,16 @@ impl InspectState {
     ) -> Self {
         let mut selected = HashSet::new();
         for comp in &repository.detected_components {
-            selected.insert(comp.component);
+            if comp.component != ConfigComponent::Monitors {
+                selected.insert(comp.component);
+            }
         }
 
         Self {
             detected_components: repository.detected_components.clone(),
             repository,
             selected_components: selected,
+            raw_detections: Vec::new(),
             procedural_directives: directives,
             hardware_notices,
             active_tab: InspectTab::Readme,

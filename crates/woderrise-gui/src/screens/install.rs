@@ -9,7 +9,7 @@
 use camino::Utf8PathBuf;
 use iced::widget::{button, checkbox, column, container, progress_bar, row, scrollable, text};
 use iced::{Alignment, Color, Element, Length};
-use woderrise_core::models::{CatalogRepository, ConfigComponent};
+use woderrise_core::models::{CatalogRepository, ConfigComponent, StagedFile};
 use woderrise_detect::ProceduralDirective;
 
 /// 4-phase transaction installation phases.
@@ -55,6 +55,7 @@ pub struct InstallState {
     pub progress_ratio: f32,
     pub status_message: String,
     pub directive_approvals: Vec<DirectiveApproval>,
+    pub staged_files: Vec<StagedFile>,
     pub installed_files: Vec<Utf8PathBuf>,
     pub error_message: Option<String>,
 }
@@ -82,6 +83,7 @@ impl InstallState {
             progress_ratio: 0.0,
             status_message: "Awaiting security review approval".to_string(),
             directive_approvals,
+            staged_files: Vec::new(),
             installed_files: Vec::new(),
             error_message: None,
         }
