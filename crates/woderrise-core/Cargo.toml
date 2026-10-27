@@ -3,19 +3,23 @@ name = "woderrise-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-hex = "0.4"
-rusqlite = { version = "0.32", features = ["bundled"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml = "0.9"
-sha2 = "0.10"
-tempfile = "3"
-thiserror = "2"
-url = "2"
-uuid = { version = "1", features = ["v4"] }
-walkdir = "2"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+camino.workspace = true
+directories.workspace = true
+chrono.workspace = true
+semver.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

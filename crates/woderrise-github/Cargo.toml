@@ -1,0 +1,26 @@
+[package]
+name = "woderrise-github"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+woderrise-core.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+moka.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true

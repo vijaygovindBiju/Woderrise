@@ -3,13 +3,21 @@ name = "woderrise-gui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+autobins = false
+autotests = false
+
+[lib]
+path = "src/lib.rs"
 
 [dependencies]
-woderrise-core = { path = "../woderrise-core" }
-ratatui = "0.29"
-crossterm = "0.28"
-rusqlite = { version = "0.32", features = ["bundled"] }
-
-[[bin]]
-name = "woderrise-gui"
-path = "src/main.rs"
+woderrise-core.workspace = true
+woderrise-github.workspace = true
+woderrise-detect.workspace = true
+woderrise-transaction.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
