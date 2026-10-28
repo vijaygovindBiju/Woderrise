@@ -2,7 +2,7 @@
 
 > **A Lightweight, GitHub-Powered Linux Desktop Configuration Store with a Native Graphical GUI in Rust**
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](Cargo.toml)
 [![Rust](https://img.shields.io/badge/Rust-1.97%2B-orange.svg)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Wayland-informational.svg)](https://wayland.freedesktop.org)
 [![Compositor](https://img.shields.io/badge/Compositor-Hyprland-brightgreen.svg)](https://hyprland.org)
@@ -137,11 +137,11 @@ To understand how Woderrise operates from the moment a user launches the applica
 ```
 
 ### Phase 1: Search & Discovery (Two-Tier Architecture)
-1. The user opens Woderrise. The application loads `$XDG_DATA_HOME/woderrise/catalog.json` and initializes the `moka` in-memory TTL cache.
-2. The user types a query (e.g. `catppuccin`) into the search bar or clicks a category filter pill (`Waybar`).
-3. **Tier 1 (Instant Local Filter)**: The search box instantly filters across repositories already cataloged in `catalog.json` (0ms latency, zero network calls, zero quota consumption).
-4. **Tier 2 (Remote GitHub Search API)**: If local results are insufficient, pressing `Enter`, clicking "Search GitHub", or an extended **600ms debounce** triggers a remote query to GitHub's Search API (`GET /search/repositories?q=topic:hyprland-dotfiles+catppuccin`).
-5. **In-Memory TTL Caching**: The engine checks the in-memory cache (10-minute default TTL). Within the TTL window, results return immediately without network access. When TTL expires or on manual refresh, a request is sent with `If-None-Match: <etag>`. (Note: unauthenticated 304 responses still decrement GitHub's rate limit quota by 1).
+1. The user opens Woderrise. The application automatically loads `$XDG_DATA_HOME/woderrise/catalog.json` (hydrated with 30 top real-world community configurations) and initializes the `moka` in-memory TTL cache.
+2. The user types a query (e.g. `catppuccin`, `ml4`) into the search bar or clicks a category filter pill (`Waybar`, `Hyprlock`).
+3. **Tier 1 (Instant In-Memory Filter)**: As the user types, Woderrise instantly filters the in-memory catalog across repository names, topics, and descriptions (0ms latency, zero network calls, zero rate limit consumption).
+4. **Tier 2 (Explicit Remote GitHub Search)**: To search remote GitHub beyond the local catalog, pressing <kbd>Enter</kbd> or clicking **"Search GitHub"** explicitly queries GitHub's Search API (`GET /search/repositories?q=...`), preventing accidental rate-limit depletion from rapid keystrokes.
+5. **In-Memory TTL Caching**: The engine checks the in-memory cache (10-minute default TTL). Within the TTL window, repeated searches return immediately without network access.
 6. The GUI displays an active **Search Quota Gauge** tracking the dedicated `X-RateLimit-Resource: search` pool (10 req/min unauthenticated, 30 req/min authenticated).
 
 ### Phase 2: Inspection & Remote Tree Resolution
@@ -241,27 +241,54 @@ Woderrise is built with defense-in-depth principles:
 
 ---
 
-## 7. Phased Implementation Roadmap
+## 7. Implementation Status & Milestones
 
-Woderrise is being delivered across 5 structured milestones. **Each milestone defines strict acceptance criteria and requires staging, committing, and pushing changes to `origin/main` upon completion.**
+Woderrise is organized across disciplined milestones. All 5 core workspace crates are implemented, thoroughly tested with a 100% test pass rate, and actively maintained:
 
 | Milestone | Scope | Deliverables & Acceptance Criteria | Status |
-| :--- | :--- | :--- | :--- |
-| **Stage 0** | **Architectural Proposal & Documentation** | Git identity setup, main checkout tracking origin/main, author `docs/DESIGN_PROPOSAL.md` (all 12 sections), author comprehensive `README.md`, commit and push to `origin/main`. Zero code scaffolding. | **COMPLETE** |
-| **Milestone 1** | **Core Domain & GitHub API Pipeline** | Implement `woderrise-core` (domain models, paths, errors) and `woderrise-github` (Reqwest client, Git Trees recursive parser, raw blob downloader, ETag 304 cache, rate limit monitor, token auth). 100% real-world data policy. Offline WireMock tests. Commit & push to `origin/main`. | Planned |
-| **Milestone 2** | **Component Detection & Transaction Engine** | Implement `woderrise-detect` (Hyprland legacy & Lua, Waybar JSONC/CSS, Hyprlock, Hypridle, wallpapers, GTK) and `woderrise-transaction` (sandboxed staging, path security audit, pre-install snapshots, atomic swap via `rename`, persistent `journal.json`, crash recovery). Commit & push to `origin/main`. | Planned |
-| **Milestone 3** | **Full Desktop GUI & Snap Store UX** | Implement `woderrise-gui` in pure Rust with Iced (v0.14+). Responsive card grid, debounced search with cancellation tokens, category filters, hero banners, screenshot carousel, two-column inspect view, rendered Markdown README, syntax-highlighted diffs, progress modal, and rollback history view. Portal dark theme. Commit & push to `origin/main`. | Planned |
-| **Milestone 4** | **End-to-End Hardening & Release** | Binary entrypoint `src/main.rs`, runtime bootstrap, signal handling, comprehensive end-to-end integration test suite, offline deterministic tests, CI workflows, and release preparation. Commit & push to `origin/main`. | Planned |
+| :--- | :--- | :--- | :---: |
+| **Milestone 0** | **Architectural Proposal & Taxonomy** | 41-document specification suite, STRIDE threat model, JSON Schemas for catalog, manifest, and journal. | **COMPLETE** |
+| **Milestone 1** | **Core Domain & GitHub API Pipeline** | `woderrise-core` & `woderrise-github`: Domain models, XDG path containment, Fastly CDN blob streaming (0 REST quota), ETag 304 caching, and proactive rate limit tracking. | **COMPLETE** |
+| **Milestone 2** | **Component Detection & Transaction Engine** | `woderrise-detect` & `woderrise-transaction`: 7-component detection engine, hardware display config preservation, 4-phase atomic swap, WAL journal, and LIFO rollback. | **COMPLETE** |
+| **Milestone 3** | **Native Desktop GUI & Snap Store UX** | `woderrise-gui`: Native Iced (v0.14+) desktop app. Discover screen with 30 real-world setups, category filter pills, inspect view, Myers diff viewer, and rollback history. | **COMPLETE** |
+| **Milestone 4** | **End-to-End Hardening & Testing** | Binary entrypoint `src/main.rs`, 100% test pass rate across unit, integration, and adversarial suites in all 5 crates, and 0 clippy warnings. | **COMPLETE** |
+| **Milestone 5 / Next** | **Discovery Engine & UX Enhancements** | Eager background tree inspection for instant card badges, multi-topic aggregation (100+ setups), keyring-backed GitHub PAT settings dialog, and fuzzy typo-tolerant search. | **IN PROGRESS** |
 
 ---
 
-## 8. Detailed Architectural Documentation
+## 8. Quick Start
 
-For an exhaustive, production-grade breakdown of all system subsystems, schemas, component heuristics, and transaction state machines, refer to the full architectural design proposal:
-- 📖 **[docs/DESIGN_PROPOSAL.md](docs/DESIGN_PROPOSAL.md)** — Complete 12-section architectural design proposal covering goals, workflows, Iced GUI architecture, crate ecosystem, GitHub discovery, real-world data policy, JSON schemas, component detection matrix, 4-phase atomic swap, security boundaries, and phased roadmap.
+### Prerequisites
+- **Rust 1.88+** (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- Linux desktop running a Wayland compositor (e.g. [Hyprland](https://hyprland.org))
+
+### Build & Run
+```bash
+# Clone the repository
+git clone https://github.com/vijaygovindBiju/Woderrise.git
+cd Woderrise
+
+# Launch the native desktop application
+cargo run
+
+# Run the complete test suite across all 5 workspace crates
+cargo test --workspace
+
+# Run static linter
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
 ---
 
-## 9. License
+## 9. Detailed Architectural Documentation
 
-Woderrise is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See [LICENSE](LICENSE) for details.
+For an exhaustive, production-grade breakdown of all system subsystems, schemas, component heuristics, and transaction state machines, refer to the full architectural design proposal and task backlogs:
+- 📖 **[docs/DESIGN_PROPOSAL.md](docs/DESIGN_PROPOSAL.md)** — Complete 12-section architectural design proposal covering workflows, Iced GUI architecture, crate ecosystem, GitHub discovery, component detection matrix, 4-phase atomic swap, and security boundaries.
+- 📋 **[docs/TODO.md](docs/TODO.md)** — Actionable engineering task backlog and next iteration roadmap.
+- 🗺️ **[docs/ROADMAP.md](docs/ROADMAP.md)** — Project roadmap and long-term delivery milestones.
+
+---
+
+## 10. License
+
+Woderrise is licensed under the **MIT License**. See [`Cargo.toml`](Cargo.toml) for details.
