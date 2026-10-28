@@ -193,3 +193,9 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Dependencies:** `TASK-NEXT-DISC-001`
   - **What:** Publish a daily automated GitHub Action in the Woderrise repository that scans GitHub, verifies all components, and uploads a validated `catalog.v1.json` to a static CDN or GitHub Pages.
   - **Benefit & Completion Criteria:** Client applications download a rich, pre-audited index of hundreds of configurations on startup with 0 GitHub API rate limit consumption.
+
+- [ ] **`TASK-NEXT-BUG-006`**: Fix Cosmic-Text Line Height Panic on Inspect/History/Install Screens
+  - **Subsystem:** GUI Layout Stability (`woderrise-gui`)
+  - **Dependencies:** None
+  - **Issue:** Using dummy `text("").size(0)` or `container(text("").size(0))` for empty/conditional placeholders causes `cosmic-text` to panic with `assertion left != right failed: line height cannot be 0` (specifically in `screens/inspect.rs` lines 188/224, `screens/history.rs`, and `screens/install.rs`).
+  - **Fix & Completion Criteria:** Eliminate all `size(0)` text widgets across the GUI; conditionally push elements into layout columns or use `iced::widget::Space::new(0, 0)` so clicking "Inspect" renders cleanly without crashing.
