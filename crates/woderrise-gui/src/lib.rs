@@ -76,51 +76,29 @@ pub async fn run_worker(
                 let search_quota = github_client.rate_limiter().search_status();
                 let catalog_path_res = XdgPaths::from_env().map(|paths| paths.catalog_file());
 
-                let mut loaded_catalog: Option<Catalog> = None;
-                if let Ok(ref catalog_path) = catalog_path_res {
-                    if catalog_path.exists() {
-                        if let Ok(cat) = read_json_file::<Catalog>(catalog_path) {
-                            if !cat.repositories.is_empty() {
-                                loaded_catalog = Some(cat);
-                            }
+                // Try fetching latest popular Hyprland dotfiles from GitHub first
+                let mut remote_repos = Vec::new();
+                if github_client.rate_limiter().check_search_quota().is_ok() {
+                    if let Ok(resp) =
+                        github_client.search_repositories("hyprland dotfiles").await
+                    {
+                        if !resp.items.is_empty() {
+                            remote_repos = resp.items;
                         }
                     }
                 }
 
-                if let Some(cat) = loaded_catalog {
-                    let _ = event_tx
-                        .send(EngineEvent::SearchCompleted {
-                            query: String::new(),
-                            results: cat.repositories,
-                            search_quota,
-                        })
-                        .await;
-                } else {
-                    let mut popular_repos = Vec::new();
-                    if github_client.rate_limiter().check_search_quota().is_ok() {
-                        if let Ok(resp) =
-                            github_client.search_repositories("hyprland dotfiles").await
-                        {
-                            if !resp.items.is_empty() {
-                                popular_repos = resp.items;
-                            }
-                        }
-                    }
-
-                    if popular_repos.is_empty() {
-                        popular_repos = Catalog::default_popular().repositories;
-                    }
-
+                if !remote_repos.is_empty() {
                     let new_catalog = Catalog {
                         schema: Some(CATALOG_SCHEMA_V1.to_string()),
                         version: CURRENT_CATALOG_VERSION,
                         last_synced: chrono::Utc::now(),
-                        repositories: popular_repos.clone(),
+                        repositories: remote_repos.clone(),
                     };
 
                     if let Ok(ref catalog_path) = catalog_path_res {
                         if let Err(e) = write_json_file_durably(catalog_path, &new_catalog) {
-                            warn!("Failed to persist initial catalog: {}", e);
+                            warn!("Failed to persist refreshed catalog: {}", e);
                         }
                     }
 
@@ -128,8 +106,33 @@ pub async fn run_worker(
                     let _ = event_tx
                         .send(EngineEvent::SearchCompleted {
                             query: String::new(),
-                            results: popular_repos,
+                            results: remote_repos,
                             search_quota: updated_quota,
+                        })
+                        .await;
+                } else {
+                    // Fallback to local catalog file if present
+                    let mut local_repos = Vec::new();
+                    if let Ok(ref catalog_path) = catalog_path_res {
+                        if catalog_path.exists() {
+                            if let Ok(cat) = read_json_file::<Catalog>(catalog_path) {
+                                if !cat.repositories.is_empty() {
+                                    local_repos = cat.repositories;
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback to pre-seeded catalog if local file is missing/empty
+                    if local_repos.is_empty() {
+                        local_repos = Catalog::default_popular().repositories;
+                    }
+
+                    let _ = event_tx
+                        .send(EngineEvent::SearchCompleted {
+                            query: String::new(),
+                            results: local_repos,
+                            search_quota,
                         })
                         .await;
                 }

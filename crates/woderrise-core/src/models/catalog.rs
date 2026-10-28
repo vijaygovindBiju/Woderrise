@@ -65,16 +65,13 @@ pub type CompatibleComponent = DetectedComponent;
 
 /// Discovered repository metadata in catalog.json.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(from = "CatalogRepositoryHelper")]
 pub struct CatalogRepository {
     #[serde(default)]
     pub id: u64,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_owner",
-        skip_serializing_if = "String::is_empty"
-    )]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub owner: String,
-    #[serde(default, alias = "name", skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub repo: String,
     #[serde(default)]
     pub full_name: String,
@@ -82,20 +79,73 @@ pub struct CatalogRepository {
     pub html_url: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default, alias = "stars")]
+    #[serde(default)]
     pub stargazers_count: u64,
     #[serde(default = "default_branch_main")]
     pub default_branch: String,
-    #[serde(default, deserialize_with = "deserialize_topics")]
+    #[serde(default)]
     pub topics: Vec<String>,
-    #[serde(alias = "updated_at", default)]
+    #[serde(default)]
     pub pushed_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cached_tree_sha: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub etag: Option<String>,
-    #[serde(alias = "compatible_components", default)]
+    #[serde(default)]
     pub detected_components: Vec<DetectedComponent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CatalogRepositoryHelper {
+    #[serde(default)]
+    id: u64,
+    #[serde(default, deserialize_with = "deserialize_owner")]
+    owner: String,
+    #[serde(default, alias = "name")]
+    repo: String,
+    #[serde(default)]
+    full_name: String,
+    #[serde(default)]
+    html_url: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default, alias = "stars")]
+    stargazers_count: u64,
+    #[serde(default = "default_branch_main")]
+    default_branch: String,
+    #[serde(default, deserialize_with = "deserialize_topics")]
+    topics: Vec<String>,
+    #[serde(default)]
+    pushed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    cached_tree_sha: Option<String>,
+    #[serde(default)]
+    etag: Option<String>,
+    #[serde(default, alias = "compatible_components")]
+    detected_components: Vec<DetectedComponent>,
+}
+
+impl From<CatalogRepositoryHelper> for CatalogRepository {
+    fn from(helper: CatalogRepositoryHelper) -> Self {
+        let pushed_at = helper.pushed_at.or(helper.updated_at);
+        Self {
+            id: helper.id,
+            owner: helper.owner,
+            repo: helper.repo,
+            full_name: helper.full_name,
+            html_url: helper.html_url,
+            description: helper.description,
+            stargazers_count: helper.stargazers_count,
+            default_branch: helper.default_branch,
+            topics: helper.topics,
+            pushed_at,
+            cached_tree_sha: helper.cached_tree_sha,
+            etag: helper.etag,
+            detected_components: helper.detected_components,
+        }
+    }
 }
 
 impl CatalogRepository {
