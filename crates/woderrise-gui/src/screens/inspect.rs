@@ -153,8 +153,18 @@ pub fn view_inspect<'a, Message: Clone + 'a>(
         comp_list = comp_list.push(cb);
     }
 
+    // Install CTA button
+    let install_label = format!("Install Selected ({})", state.selected_file_count());
+    let mut install_btn = button(text(install_label).size(14)).padding([10, 20]);
+
+    if state.is_install_allowed() {
+        install_btn = install_btn.on_press(on_install);
+    }
+
+    let mut left_col = column![meta_section, comp_list].spacing(16);
+
     // Hardware preservation protection notice
-    let hw_section = if !state.hardware_notices.is_empty() {
+    if !state.hardware_notices.is_empty() {
         let mut hw_col = column![
             text("🛡️ Hardware Display Preservation:")
                 .size(13)
@@ -173,7 +183,7 @@ pub fn view_inspect<'a, Message: Clone + 'a>(
             );
         }
 
-        container(hw_col)
+        let hw_container = container(hw_col)
             .padding(10)
             .style(|_theme| container::Style {
                 background: Some(Color::from_rgba(0.25, 0.2, 0.08, 0.4).into()),
@@ -183,21 +193,26 @@ pub fn view_inspect<'a, Message: Clone + 'a>(
                     radius: 6.0.into(),
                 },
                 ..Default::default()
-            })
-    } else {
-        container(text("").size(0))
-    };
+            });
+
+        left_col = left_col.push(hw_container);
+    }
 
     // Security audit directives review panel
-    let sec_section = if !state.procedural_directives.is_empty() {
+    if !state.procedural_directives.is_empty() {
         let count = state.procedural_directives.len();
         let mut sec_col = column![
-            text(format!("⚠️ Security Review ({} inline commands detected):", count))
-                .size(13)
-                .color(Color::from_rgb(0.96, 0.58, 0.66)),
-            text("Procedural commands (exec, exec-once, on-click) are neutralized by default for safety.")
-                .size(11)
-                .color(Color::from_rgb(0.8, 0.8, 0.85)),
+            text(format!(
+                "⚠️ Security Review ({} inline commands detected):",
+                count
+            ))
+            .size(13)
+            .color(Color::from_rgb(0.96, 0.58, 0.66)),
+            text(
+                "Procedural commands (exec, exec-once, on-click) are neutralized by default for safety."
+            )
+            .size(11)
+            .color(Color::from_rgb(0.8, 0.8, 0.85)),
         ]
         .spacing(4);
 
@@ -209,7 +224,7 @@ pub fn view_inspect<'a, Message: Clone + 'a>(
             );
         }
 
-        container(sec_col)
+        let sec_container = container(sec_col)
             .padding(10)
             .style(|_theme| container::Style {
                 background: Some(Color::from_rgba(0.3, 0.1, 0.15, 0.4).into()),
@@ -219,31 +234,14 @@ pub fn view_inspect<'a, Message: Clone + 'a>(
                     radius: 6.0.into(),
                 },
                 ..Default::default()
-            })
-    } else {
-        container(text("").size(0))
-    };
+            });
 
-    // Install CTA button
-    let install_label = format!("Install Selected ({})", state.selected_file_count());
-    let mut install_btn = button(text(install_label).size(14)).padding([10, 20]);
-
-    if state.is_install_allowed() {
-        install_btn = install_btn.on_press(on_install);
+        left_col = left_col.push(sec_container);
     }
 
-    let left_pane = scrollable(
-        column![
-            meta_section,
-            comp_list,
-            hw_section,
-            sec_section,
-            install_btn,
-        ]
-        .spacing(16)
-        .padding(12),
-    )
-    .width(Length::FillPortion(2));
+    left_col = left_col.push(install_btn);
+
+    let left_pane = scrollable(left_col.padding(12)).width(Length::FillPortion(2));
 
     // --- RIGHT COLUMN: Tabbed Viewer (README / FileTree / Diff) ---
     let tab_readme = button(text("README.md").size(12))

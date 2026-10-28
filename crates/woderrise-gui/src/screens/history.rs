@@ -177,21 +177,28 @@ pub fn view_history<'a, Message: Clone + 'a>(
         .spacing(16);
 
         // Strict LIFO rollback button
-        let action_row: Element<'a, Message> = if item.is_latest_committed {
+        let action_row: Option<Element<'a, Message>> = if item.is_latest_committed {
             let rollback_btn = button(text("1-Click Rollback").size(12))
                 .padding([4, 12])
                 .on_press(on_rollback_latest(false));
-            row![rollback_btn].into()
+            Some(row![rollback_btn].into())
         } else if item.status == TransactionStatus::Committed {
-            text("Rollback unavailable (Must rollback newer transactions first)")
-                .size(11)
-                .color(Color::from_rgb(0.55, 0.55, 0.65))
-                .into()
+            Some(
+                text("Rollback unavailable (Must rollback newer transactions first)")
+                    .size(11)
+                    .color(Color::from_rgb(0.55, 0.55, 0.65))
+                    .into(),
+            )
         } else {
-            text("").size(0).into()
+            None
         };
 
-        let card = container(column![card_header, details, action_row].spacing(8))
+        let mut card_col = column![card_header, details].spacing(8);
+        if let Some(action) = action_row {
+            card_col = card_col.push(action);
+        }
+
+        let card = container(card_col)
             .padding(12)
             .width(Length::Fill)
             .style(|_theme| container::Style {
@@ -207,8 +214,10 @@ pub fn view_history<'a, Message: Clone + 'a>(
         list_col = list_col.push(card);
     }
 
+    let mut main_col = column![header].spacing(16);
+
     // Modal overlay for dirty state if active
-    let modal_overlay: Element<'a, Message> = if let Some(modal) = &state.dirty_modal {
+    if let Some(modal) = &state.dirty_modal {
         let mut mod_files = column![
             text("⚠️ Modified Files Detected")
                 .size(16)
@@ -254,17 +263,15 @@ pub fn view_history<'a, Message: Clone + 'a>(
         })
         .max_width(500);
 
-        container(modal_box)
+        let modal_container = container(modal_box)
             .width(Length::Fill)
             .align_x(Alignment::Center)
-            .padding(20)
-            .into()
-    } else {
-        container(text("").size(0)).into()
-    };
+            .padding(20);
 
-    column![header, modal_overlay, scrollable(list_col)]
-        .spacing(16)
-        .padding(20)
-        .into()
+        main_col = main_col.push(modal_container);
+    }
+
+    main_col = main_col.push(scrollable(list_col));
+
+    main_col.padding(20).into()
 }

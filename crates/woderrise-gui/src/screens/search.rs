@@ -3,7 +3,9 @@
 //! Provides two-tier search (instant local filtering + debounced remote GitHub query),
 //! category filter pills, responsive card grid layout, and API rate limit monitoring.
 
-use iced::widget::{button, column, container, responsive, row, scrollable, text, text_input};
+use iced::widget::{
+    button, column, container, responsive, row, scrollable, text, text_input, Space,
+};
 use iced::{Alignment, Color, Element, Length};
 use woderrise_core::models::{CatalogRepository, ConfigComponent};
 
@@ -353,7 +355,7 @@ pub fn view_search<'a, Message: Clone + 'a>(
             // Fill empty slots in the last row to maintain grid alignment
             let remainder = columns - chunk.len();
             for _ in 0..remainder {
-                grid_row = grid_row.push(container(text("")).width(Length::FillPortion(1)));
+                grid_row = grid_row.push(container(Space::new()).width(Length::FillPortion(1)));
             }
             grid_col = grid_col.push(grid_row);
         }

@@ -168,48 +168,6 @@ pub fn view_install<'a, Message: Clone + 'a>(
     ]
     .spacing(10);
 
-    // Directive approvals list (if in PendingApproval phase)
-    let directive_section: Element<'a, Message> = if state.current_phase
-        == InstallPhase::PendingApproval
-        && !state.directive_approvals.is_empty()
-    {
-        let mut approvals_col = column![
-            text("Procedural Command Approvals:").size(14),
-            text("Select any commands you want to allow. Unapproved commands will be safely neutralized.")
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.72, 0.8)),
-        ]
-        .spacing(6);
-
-        for (i, item) in state.directive_approvals.iter().enumerate() {
-            let label = format!(
-                "{}: {}",
-                item.directive.directive_type, item.directive.command
-            );
-            let toggle = on_toggle_approval.clone();
-            let cb = checkbox(item.approved)
-                .label(label)
-                .on_toggle(move |_| toggle(i))
-                .size(13);
-            approvals_col = approvals_col.push(cb);
-        }
-
-        container(approvals_col)
-            .padding(12)
-            .style(|_theme| container::Style {
-                background: Some(Color::from_rgba(0.18, 0.2, 0.28, 0.5).into()),
-                border: iced::Border {
-                    color: Color::from_rgba(0.4, 0.45, 0.6, 0.3),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                ..Default::default()
-            })
-            .into()
-    } else {
-        container(text("").size(0)).into()
-    };
-
     // Actions depending on current phase
     let actions: Element<'a, Message> = match state.current_phase {
         InstallPhase::PendingApproval => {
@@ -242,10 +200,52 @@ pub fn view_install<'a, Message: Clone + 'a>(
             .into(),
     };
 
-    let content = column![header, progress, directive_section, actions,]
-        .spacing(18)
-        .padding(20)
-        .max_width(650);
+    let mut content = column![header, progress].spacing(18);
+
+    // Directive approvals list (if in PendingApproval phase)
+    if state.current_phase == InstallPhase::PendingApproval
+        && !state.directive_approvals.is_empty()
+    {
+        let mut approvals_col = column![
+            text("Procedural Command Approvals:").size(14),
+            text(
+                "Select any commands you want to allow. Unapproved commands will be safely neutralized."
+            )
+            .size(12)
+            .color(Color::from_rgb(0.7, 0.72, 0.8)),
+        ]
+        .spacing(6);
+
+        for (i, item) in state.directive_approvals.iter().enumerate() {
+            let label = format!(
+                "{}: {}",
+                item.directive.directive_type, item.directive.command
+            );
+            let toggle = on_toggle_approval.clone();
+            let cb = checkbox(item.approved)
+                .label(label)
+                .on_toggle(move |_| toggle(i))
+                .size(13);
+            approvals_col = approvals_col.push(cb);
+        }
+
+        let approvals_container = container(approvals_col)
+            .padding(12)
+            .style(|_theme| container::Style {
+                background: Some(Color::from_rgba(0.18, 0.2, 0.28, 0.5).into()),
+                border: iced::Border {
+                    color: Color::from_rgba(0.4, 0.45, 0.6, 0.3),
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            });
+
+        content = content.push(approvals_container);
+    }
+
+    content = content.push(actions);
+    let content = content.padding(20).max_width(650);
 
     container(scrollable(content))
         .width(Length::Fill)
