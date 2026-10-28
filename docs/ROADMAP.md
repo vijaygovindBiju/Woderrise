@@ -113,6 +113,18 @@ gantt
 
 ---
 
+### Milestone 6: Discovery Engine & UX Enhancements (Next Iteration)
+- **Target Timeline:** Q3 2027 (4 Weeks)
+- **Dependencies:** Milestone 4 & 5 completion.
+- **Core Deliverables:**
+  - **Background Tree Pre-Inspection:** Asynchronous background tree fetching via Fastly CDN / GitHub Git Trees API to populate component badges eagerly on discovery cards.
+  - **Multi-Topic Aggregation & Curation:** Multi-query aggregation across Hyprland and Wayland ecosystem topics, expanding the active discovery catalog to 100+ configurations.
+  - **GitHub PAT Integration:** Keyring-backed GitHub Personal Access Token settings to increase search quotas to 30/min and core API calls to 5,000/hr.
+  - **Fuzzy Search:** Typo-tolerant substring and abbreviation matching (`sublime_fuzzy` / `nucleo-matcher`).
+  - **Remote Curated Catalog Feed:** Nightly GitHub Action compiling and hosting a signed static `catalog.v1.json` on a CDN with 0 API quota consumption.
+
+---
+
 ## 3. Explicit Out-of-Scope Items (Guarding Project Scope)
 
 The following capabilities are explicitly **excluded** from initial milestones:

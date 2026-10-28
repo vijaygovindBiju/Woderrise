@@ -159,3 +159,37 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Subsystem:** Portability
   - **Dependencies:** `TASK-M2-POLKIT-002`
   - **Completion Criteria:** Passes packaging tests on Fedora 40 container.
+
+---
+
+## 7. Next Iteration Backlog (High-Impact Discovery & UX Enhancements)
+
+- [ ] **`TASK-NEXT-DISC-001`**: Background Tree Pre-Inspection (Eager Detection)
+  - **Subsystem:** Discovery Engine (`woderrise-detect`, `woderrise-github`, `woderrise-gui`)
+  - **Dependencies:** None
+  - **What:** When GitHub returns search results, have a background worker asynchronously fetch the top 5–10 repository trees via Fastly CDN / GitHub Git Trees API.
+  - **Benefit & Completion Criteria:** Component badges (Hyprland, Waybar, Hyprlock, Hypridle, Wallpapers, GTK) and file counts populate on discovery cards automatically without requiring manual "Inspect" clicks.
+
+- [ ] **`TASK-NEXT-DISC-002`**: Multi-Topic Aggregation & Curation Feed
+  - **Subsystem:** Discovery Engine (`woderrise-github`, `woderrise-gui`)
+  - **Dependencies:** None
+  - **What:** Expand the catalog refresh logic to query multiple search terms in parallel (`topic:hyprland`, `topic:waybar`, `quickshell`, `caelestia-dots`), then deduplicate and sort by stars.
+  - **Benefit & Completion Criteria:** Expands the home screen catalog from 30 to 100+ curated setups while preserving rate limit quotas.
+
+- [ ] **`TASK-NEXT-AUTH-003`**: Personal Access Token (PAT) Integration in Settings
+  - **Subsystem:** Authentication & GUI (`woderrise-github`, `woderrise-gui`)
+  - **Dependencies:** None
+  - **What:** Provide an input dialog in the GUI/CLI to store an optional GitHub Personal Access Token in the local keyring / config file.
+  - **Benefit & Completion Criteria:** Increases GitHub search rate limits from 10/min to 30/min, and core REST API limits from 60/hr to 5,000/hr, with immediate gauge indicator updates.
+
+- [ ] **`TASK-NEXT-SEARCH-004`**: Fuzzy & Typo-Tolerant Search
+  - **Subsystem:** Search Engine (`woderrise-github`)
+  - **Dependencies:** None
+  - **What:** Replace simple substring matching in `crates/woderrise-github/src/search.rs` with a lightweight fuzzy matching crate (`sublime_fuzzy` or `nucleo-matcher`).
+  - **Benefit & Completion Criteria:** Search queries tolerate typos and abbreviations (e.g. `ml4` -> `mylinuxforwork`, `hyprlnd` -> `hyprland`), ranking closest matches first.
+
+- [ ] **`TASK-NEXT-FEED-005`**: Remote Curated Catalog Feed (CDN Hosted)
+  - **Subsystem:** Registry & Infrastructure (`woderrise-github`, CI/CD)
+  - **Dependencies:** `TASK-NEXT-DISC-001`
+  - **What:** Publish a daily automated GitHub Action in the Woderrise repository that scans GitHub, verifies all components, and uploads a validated `catalog.v1.json` to a static CDN or GitHub Pages.
+  - **Benefit & Completion Criteria:** Client applications download a rich, pre-audited index of hundreds of configurations on startup with 0 GitHub API rate limit consumption.
