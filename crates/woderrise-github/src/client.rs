@@ -474,12 +474,25 @@ impl GitHubClient {
             });
         }
 
-        let response: SearchRepositoriesResponse =
-            res.json().await.map_err(|e| WoderriseError::GitHubApi {
+        let body_text = res.text().await.map_err(|e| WoderriseError::GitHubApi {
+            status: 500,
+            message: format!("Failed to read search response body: {}", e),
+            reset_epoch: None,
+        })?;
+
+        let response: SearchRepositoriesResponse = serde_json::from_str(&body_text).map_err(|e| {
+            let preview = if body_text.len() > 200 {
+                format!("{}...", &body_text[..200])
+            } else {
+                body_text.clone()
+            };
+            warn!(error = %e, preview = %preview, "Failed to parse search response JSON");
+            WoderriseError::GitHubApi {
                 status: 500,
                 message: format!("Failed to parse search response JSON: {}", e),
                 reset_epoch: None,
-            })?;
+            }
+        })?;
 
         self.cache
             .put_search(query.to_string(), response.clone())

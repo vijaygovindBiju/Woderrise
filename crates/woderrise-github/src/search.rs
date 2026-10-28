@@ -77,17 +77,13 @@ pub fn filter_local_catalog(catalog: &Catalog, query: &str) -> Vec<CatalogReposi
 
 /// Helper to enrich a user search query for Hyprland/Wayland dotfile discovery.
 ///
-/// If the query doesn't already contain explicit topic qualifiers, appends
-/// topic filters targeting Wayland and Hyprland configurations.
+/// If the query is empty, defaults to searching for popular Hyprland dotfile repositories.
+/// If the user provides a query, uses the user's query directly.
 pub fn build_enriched_search_query(user_query: &str) -> String {
     let trimmed = user_query.trim();
     if trimmed.is_empty() {
-        return "topic:hyprland-dotfiles topic:hyprland".to_string();
-    }
-
-    if trimmed.contains("topic:") {
-        trimmed.to_string()
+        "hyprland dotfiles".to_string()
     } else {
-        format!("{} topic:hyprland", trimmed)
+        trimmed.to_string()
     }
 }

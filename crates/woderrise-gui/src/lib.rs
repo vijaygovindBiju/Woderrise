@@ -16,8 +16,11 @@ pub use theme::{fetch_portal_theme, map_color_scheme_to_theme, map_raw_scheme_va
 pub use widgets::{FileDiffReport, RateLimitColorTier, RateLimitGaugeState};
 
 use tracing::{debug, error, info, warn};
-use woderrise_core::models::StagedFile;
+use woderrise_core::models::{Catalog, StagedFile};
 use woderrise_core::paths::XdgPaths;
+use woderrise_core::schema::{
+    read_json_file, write_json_file_durably, CATALOG_SCHEMA_V1, CURRENT_CATALOG_VERSION,
+};
 use woderrise_detect::{DetectionEngine, TreeEntry};
 use woderrise_github::{GitHubClient, GitHubClientBuilder};
 use woderrise_transaction::TransactionEngine;
@@ -71,13 +74,65 @@ pub async fn run_worker(
 
             GuiCommand::RefreshCatalog => {
                 let search_quota = github_client.rate_limiter().search_status();
-                let _ = event_tx
-                    .send(EngineEvent::SearchCompleted {
-                        query: String::new(),
-                        results: Vec::new(),
-                        search_quota,
-                    })
-                    .await;
+                let catalog_path_res = XdgPaths::from_env().map(|paths| paths.catalog_file());
+
+                let mut loaded_catalog: Option<Catalog> = None;
+                if let Ok(ref catalog_path) = catalog_path_res {
+                    if catalog_path.exists() {
+                        if let Ok(cat) = read_json_file::<Catalog>(catalog_path) {
+                            if !cat.repositories.is_empty() {
+                                loaded_catalog = Some(cat);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(cat) = loaded_catalog {
+                    let _ = event_tx
+                        .send(EngineEvent::SearchCompleted {
+                            query: String::new(),
+                            results: cat.repositories,
+                            search_quota,
+                        })
+                        .await;
+                } else {
+                    let mut popular_repos = Vec::new();
+                    if github_client.rate_limiter().check_search_quota().is_ok() {
+                        if let Ok(resp) =
+                            github_client.search_repositories("hyprland dotfiles").await
+                        {
+                            if !resp.items.is_empty() {
+                                popular_repos = resp.items;
+                            }
+                        }
+                    }
+
+                    if popular_repos.is_empty() {
+                        popular_repos = Catalog::default_popular().repositories;
+                    }
+
+                    let new_catalog = Catalog {
+                        schema: Some(CATALOG_SCHEMA_V1.to_string()),
+                        version: CURRENT_CATALOG_VERSION,
+                        last_synced: chrono::Utc::now(),
+                        repositories: popular_repos.clone(),
+                    };
+
+                    if let Ok(ref catalog_path) = catalog_path_res {
+                        if let Err(e) = write_json_file_durably(catalog_path, &new_catalog) {
+                            warn!("Failed to persist initial catalog: {}", e);
+                        }
+                    }
+
+                    let updated_quota = github_client.rate_limiter().search_status();
+                    let _ = event_tx
+                        .send(EngineEvent::SearchCompleted {
+                            query: String::new(),
+                            results: popular_repos,
+                            search_quota: updated_quota,
+                        })
+                        .await;
+                }
             }
 
             GuiCommand::InspectPackage {

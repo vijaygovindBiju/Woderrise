@@ -48,34 +48,109 @@ impl CategoryFilter {
     pub fn matches(&self, repo: &CatalogRepository) -> bool {
         match self {
             Self::All => true,
-            Self::Hyprland => repo.detected_components.iter().any(|c| {
-                matches!(
-                    c.component,
-                    ConfigComponent::Hyprland
-                        | ConfigComponent::HyprlandLegacy
-                        | ConfigComponent::HyprlandLua
-                )
-            }),
-            Self::Waybar => repo
-                .detected_components
-                .iter()
-                .any(|c| c.component == ConfigComponent::Waybar),
-            Self::Hyprlock => repo
-                .detected_components
-                .iter()
-                .any(|c| c.component == ConfigComponent::Hyprlock),
-            Self::Hypridle => repo
-                .detected_components
-                .iter()
-                .any(|c| c.component == ConfigComponent::Hypridle),
-            Self::Wallpapers => repo
-                .detected_components
-                .iter()
-                .any(|c| c.component == ConfigComponent::Wallpapers),
-            Self::Gtk => repo
-                .detected_components
-                .iter()
-                .any(|c| c.component == ConfigComponent::GtkTheme),
+            Self::Hyprland => {
+                if !repo.detected_components.is_empty() {
+                    repo.detected_components.iter().any(|c| {
+                        matches!(
+                            c.component,
+                            ConfigComponent::Hyprland
+                                | ConfigComponent::HyprlandLegacy
+                                | ConfigComponent::HyprlandLua
+                        )
+                    })
+                } else {
+                    let text = format!(
+                        "{} {} {}",
+                        repo.resolved_full_name(),
+                        repo.description.as_deref().unwrap_or(""),
+                        repo.topics.join(" ")
+                    )
+                    .to_lowercase();
+                    text.contains("hypr")
+                }
+            }
+            Self::Waybar => {
+                if !repo.detected_components.is_empty() {
+                    repo.detected_components
+                        .iter()
+                        .any(|c| c.component == ConfigComponent::Waybar)
+                } else {
+                    let text = format!(
+                        "{} {} {}",
+                        repo.resolved_full_name(),
+                        repo.description.as_deref().unwrap_or(""),
+                        repo.topics.join(" ")
+                    )
+                    .to_lowercase();
+                    text.contains("waybar")
+                }
+            }
+            Self::Hyprlock => {
+                if !repo.detected_components.is_empty() {
+                    repo.detected_components
+                        .iter()
+                        .any(|c| c.component == ConfigComponent::Hyprlock)
+                } else {
+                    let text = format!(
+                        "{} {} {}",
+                        repo.resolved_full_name(),
+                        repo.description.as_deref().unwrap_or(""),
+                        repo.topics.join(" ")
+                    )
+                    .to_lowercase();
+                    text.contains("lock")
+                }
+            }
+            Self::Hypridle => {
+                if !repo.detected_components.is_empty() {
+                    repo.detected_components
+                        .iter()
+                        .any(|c| c.component == ConfigComponent::Hypridle)
+                } else {
+                    let text = format!(
+                        "{} {} {}",
+                        repo.resolved_full_name(),
+                        repo.description.as_deref().unwrap_or(""),
+                        repo.topics.join(" ")
+                    )
+                    .to_lowercase();
+                    text.contains("idle")
+                }
+            }
+            Self::Wallpapers => {
+                if !repo.detected_components.is_empty() {
+                    repo.detected_components
+                        .iter()
+                        .any(|c| c.component == ConfigComponent::Wallpapers)
+                } else {
+                    let text = format!(
+                        "{} {} {}",
+                        repo.resolved_full_name(),
+                        repo.description.as_deref().unwrap_or(""),
+                        repo.topics.join(" ")
+                    )
+                    .to_lowercase();
+                    text.contains("wallpaper")
+                        || text.contains("swww")
+                        || text.contains("hyprpaper")
+                }
+            }
+            Self::Gtk => {
+                if !repo.detected_components.is_empty() {
+                    repo.detected_components
+                        .iter()
+                        .any(|c| c.component == ConfigComponent::GtkTheme)
+                } else {
+                    let text = format!(
+                        "{} {} {}",
+                        repo.resolved_full_name(),
+                        repo.description.as_deref().unwrap_or(""),
+                        repo.topics.join(" ")
+                    )
+                    .to_lowercase();
+                    text.contains("gtk") || text.contains("theme")
+                }
+            }
         }
     }
 }

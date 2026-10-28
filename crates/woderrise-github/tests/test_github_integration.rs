@@ -610,3 +610,80 @@ async fn test_two_tier_search_tier2_debounced() {
     assert_eq!(results[0].resolved_full_name(), "remote_user/remote_dots");
     assert_eq!(client.rate_limiter().search_status().remaining, 9);
 }
+
+#[tokio::test]
+async fn test_github_search_real_api_response_deserialization() {
+    let mock_server = MockServer::start().await;
+
+    // Real GitHub Search API response snippet with owner as object and name alias
+    let github_search_json = serde_json::json!({
+        "total_count": 4365,
+        "incomplete_results": false,
+        "items": [
+            {
+                "id": 349947919,
+                "name": "awesome-ml4co",
+                "full_name": "Thinklab-SJTU/awesome-ml4co",
+                "owner": {
+                    "login": "Thinklab-SJTU",
+                    "id": 55233859,
+                    "avatar_url": "https://avatars.githubusercontent.com/u/55233859?v=4"
+                },
+                "html_url": "https://github.com/Thinklab-SJTU/awesome-ml4co",
+                "description": "Awesome machine learning for combinatorial optimization papers.",
+                "stargazers_count": 2175,
+                "default_branch": "master",
+                "topics": ["combinatorial-optimization", "machine-learning"],
+                "pushed_at": "2026-10-26T09:38:07Z"
+            },
+            {
+                "id": 5086001,
+                "name": "dotfiles",
+                "full_name": "mylinuxforwork/dotfiles",
+                "owner": {
+                    "login": "mylinuxforwork",
+                    "id": 123456
+                },
+                "html_url": "https://github.com/mylinuxforwork/dotfiles",
+                "description": "The ML4W Dotfiles for Hyprland",
+                "stargazers_count": 5086,
+                "default_branch": "main",
+                "topics": ["hyprland", "dotfiles", "waybar"]
+            }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(github_search_json)
+                .append_header("x-ratelimit-resource", "search")
+                .append_header("x-ratelimit-limit", "10")
+                .append_header("x-ratelimit-remaining", "8"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::builder()
+        .base_url(mock_server.uri())
+        .build()
+        .expect("Client build failed");
+
+    let resp = client
+        .search_repositories("mL4")
+        .await
+        .expect("Search must succeed without deserialization error");
+
+    assert_eq!(resp.total_count, 4365);
+    assert_eq!(resp.items.len(), 2);
+    assert_eq!(resp.items[0].resolved_full_name(), "Thinklab-SJTU/awesome-ml4co");
+    assert_eq!(resp.items[0].owner, "Thinklab-SJTU");
+    assert_eq!(resp.items[0].repo, "awesome-ml4co");
+    assert_eq!(resp.items[0].stars(), 2175);
+    assert_eq!(resp.items[1].resolved_full_name(), "mylinuxforwork/dotfiles");
+    assert_eq!(resp.items[1].owner, "mylinuxforwork");
+    assert_eq!(resp.items[1].repo, "dotfiles");
+    assert_eq!(resp.items[1].stars(), 5086);
+}

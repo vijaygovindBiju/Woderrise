@@ -585,6 +585,11 @@ impl App {
         match event {
             EngineEvent::SearchStarted { .. } => {
                 self.search_state.is_searching = true;
+                if let Some(err) = &self.error_banner {
+                    if err.starts_with("GitHub Search Error:") {
+                        self.error_banner = None;
+                    }
+                }
             }
 
             EngineEvent::SearchCompleted {
@@ -593,6 +598,11 @@ impl App {
                 ..
             } => {
                 self.search_state.is_searching = false;
+                if let Some(err) = &self.error_banner {
+                    if err.starts_with("GitHub Search Error:") {
+                        self.error_banner = None;
+                    }
+                }
                 self.search_state.catalog_repositories = results;
                 self.search_state.rate_limits.search_remaining = search_quota.remaining;
                 self.search_state.rate_limits.search_limit = search_quota.limit;
