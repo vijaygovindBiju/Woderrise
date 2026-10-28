@@ -336,16 +336,6 @@ impl App {
                 if query.trim().is_empty() {
                     self.search_state.is_searching = false;
                     let _ = self.cmd_tx.try_send(GuiCommand::RefreshCatalog);
-                    return Task::none();
-                } else {
-                    let q = query.clone();
-                    return Task::perform(
-                        async move {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                            q
-                        },
-                        Message::SearchDebounceFired,
-                    );
                 }
             }
 
