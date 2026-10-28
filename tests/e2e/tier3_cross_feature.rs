@@ -1,195 +1,219 @@
 //! Tier 3: Cross-Feature Interactions & Combinatorial State Transitions
-//! Verifies state transitions across sequences of commands and crash recovery workflows.
+//! Verifies interactions between PAT elevation, fuzzy search, pre-inspection, and feed fallback.
 
-use super::common::{
-    TestEnvironment, REAL_CATPPUCCIN_DIR, REAL_CATPPUCCIN_ID, REAL_CATPPUCCIN_VER,
-};
+use super::common::TestEnvironment;
+use camino::Utf8PathBuf;
 use std::fs;
-
-// ============================================================================
-// 1. Sequential Full Lifecycle Across All Subcommands
-// ============================================================================
+use tempfile::TempDir;
+use woderrise_core::models::{
+    load_settings, CatalogRepository, ConfigComponent, DetectedComponent, SyntaxFormat,
+};
+use woderrise_detect::DetectionEngine;
+use woderrise_github::search::aggregate_topics;
+use woderrise_github::RateLimitTracker;
+use woderrise_gui::app::{App, EngineEvent, Message};
+use woderrise_gui::resolve_catalog_4tier;
+use woderrise_gui::screens::search::CategoryFilter;
 
 #[test]
-fn test_tier3_lifecycle_search_info_diff_install_diff_rollback() {
-    let env = TestEnvironment::new("t3-lifecycle");
-    let target = env.target_file();
+fn test_tier3_pat_elevation_multi_topic_search_and_pre_inspection() {
+    let env = TestEnvironment::new("t3-full-lifecycle");
 
-    // 1. Search prior to install: package is not installed
-    let out_s1 = env.run(&["search", "waybar"]);
+    // Phase 1: Unauthenticated Initial State
+    let out_s0 = env.run_auth(&["--status"]);
+    assert_eq!(out_s0.status.code(), Some(0));
+    let s0 = String::from_utf8_lossy(&out_s0.stdout);
+    assert!(s0.contains("Unauthenticated"));
+    assert!(s0.contains("10 requests/min"));
+    assert!(s0.contains("60 requests/hr"));
+
+    // Phase 2: Save GitHub PAT via CLI
+    let token = "ghp_cross_feature_e2e_token_9876543210";
+    let out_auth = env.run_auth(&["--token", token]);
+    assert_eq!(out_auth.status.code(), Some(0));
+    assert!(env.settings_file().exists());
+
+    // Phase 3: Status reflects elevation
+    let out_s1 = env.run_auth(&["--status"]);
     assert_eq!(out_s1.status.code(), Some(0));
     let s1 = String::from_utf8_lossy(&out_s1.stdout);
-    assert!(s1.contains(REAL_CATPPUCCIN_ID));
-    assert!(!s1.contains("[installed]"));
+    assert!(s1.contains("Authenticated"));
+    assert!(s1.contains("30 requests/min"));
+    assert!(s1.contains("5,000 requests/hr"));
 
-    // 2. Info inspection
-    let out_info = env.run(&["info", REAL_CATPPUCCIN_ID]);
-    assert_eq!(out_info.status.code(), Some(0));
-    let s_info = String::from_utf8_lossy(&out_info.stdout);
-    assert!(s_info.contains("Catppuccin Waybar Mocha Theme"));
+    // Verify rate limit tracker elevation logic
+    let tracker = RateLimitTracker::new();
+    tracker.set_authenticated(true);
+    assert_eq!(tracker.search_status().limit, 30);
+    assert_eq!(tracker.core_status().limit, 5000);
 
-    // 3. Diff preview before installation: action [CREATE]
-    let out_diff1 = env.run(&["diff", REAL_CATPPUCCIN_ID]);
-    assert_eq!(out_diff1.status.code(), Some(0));
-    let s_d1 = String::from_utf8_lossy(&out_diff1.stdout);
-    assert!(s_d1.contains("[CREATE]"));
-    assert!(!target.exists(), "diff must be strictly read-only");
+    // Phase 4: Multi-Topic Aggregation with elevated limits
+    let repo_alpha = CatalogRepository {
+        id: 4001,
+        owner: "developer-a".into(),
+        repo: "dotfiles-hypr".into(),
+        full_name: "developer-a/dotfiles-hypr".into(),
+        html_url: "https://github.com/developer-a/dotfiles-hypr".into(),
+        description: Some("Hyprland dotfiles".into()),
+        stargazers_count: 650,
+        default_branch: "main".into(),
+        topics: vec!["hyprland".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
+    let repo_beta = CatalogRepository {
+        id: 4002,
+        owner: "developer-b".into(),
+        repo: "waybar-master".into(),
+        full_name: "developer-b/waybar-master".into(),
+        html_url: "https://github.com/developer-b/waybar-master".into(),
+        description: Some("Waybar configurations".into()),
+        stargazers_count: 1200,
+        default_branch: "main".into(),
+        topics: vec!["waybar".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
 
-    // 4. Install
-    let out_inst = env.run(&["install", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(out_inst.status.code(), Some(0));
-    let txn_id = String::from_utf8_lossy(&out_inst.stdout).trim().to_string();
-    assert!(target.exists());
+    let aggregated = aggregate_topics(vec![vec![repo_alpha], vec![repo_beta]]);
+    assert_eq!(aggregated.len(), 2);
+    assert_eq!(aggregated[0].id, 4002); // 1200 stars ranked first
+    assert_eq!(aggregated[1].id, 4001); // 650 stars ranked second
 
-    // 5. Search post-install: package is marked [installed]
-    let out_s2 = env.run(&["search", "waybar"]);
+    // Phase 5: Eager tree pre-inspection
+    let engine = DetectionEngine::new();
+    let entries = vec![
+        woderrise_detect::TreeEntry {
+            path: ".config/waybar/config".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(1500),
+            sha: "sha_wb".into(),
+        },
+        woderrise_detect::TreeEntry {
+            path: ".config/waybar/style.css".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(2500),
+            sha: "sha_style".into(),
+        },
+    ];
+    let components = engine.detect_components(&entries);
+    assert_eq!(components.len(), 1);
+    assert_eq!(components[0].component, ConfigComponent::Waybar);
+    assert_eq!(components[0].file_count, 2);
+
+    // Phase 6: Clear PAT via CLI
+    let out_clear = env.run_auth(&["--clear"]);
+    assert_eq!(out_clear.status.code(), Some(0));
+
+    let out_s2 = env.run_auth(&["--status"]);
     assert_eq!(out_s2.status.code(), Some(0));
     let s2 = String::from_utf8_lossy(&out_s2.stdout);
-    assert!(s2.contains("[installed]"));
-
-    // 6. Diff post-install: action [UNCHANGED]
-    let out_diff2 = env.run(&["diff", REAL_CATPPUCCIN_ID]);
-    assert_eq!(out_diff2.status.code(), Some(0));
-    let s_d2 = String::from_utf8_lossy(&out_diff2.stdout);
-    assert!(s_d2.contains("[UNCHANGED]"));
-
-    // 7. User mutates target file: append custom rules
-    let mut cur_content = fs::read_to_string(&target).unwrap();
-    cur_content.push_str("\n/* user customized modification */\n");
-    fs::write(&target, &cur_content).unwrap();
-
-    // Diff after mutation: action [MODIFY], planned backup is predicted
-    let out_diff3 = env.run(&["diff", REAL_CATPPUCCIN_ID]);
-    assert_eq!(out_diff3.status.code(), Some(0));
-    let s_d3 = String::from_utf8_lossy(&out_diff3.stdout);
-    assert!(s_d3.contains("[MODIFY]"));
-    assert!(s_d3.contains("backups/"));
-
-    // 8. Rollback without force when file was modified must detect conflict and exit code 1
-    let out_rb_unforced = env.run(&["rollback", &txn_id]);
-    assert_eq!(
-        out_rb_unforced.status.code(),
-        Some(1),
-        "Rollback without --force on modified file must detect conflict"
-    );
-
-    // Rollback with --force overrides conflict and restores clean state
-    let out_rb_force = env.run(&["rollback", &txn_id, "--force"]);
-    assert_eq!(
-        out_rb_force.status.code(),
-        Some(0),
-        "Rollback with --force must succeed: {}",
-        String::from_utf8_lossy(&out_rb_force.stderr)
-    );
-
-    // Target file is cleanly removed
-    assert!(!target.exists(), "Target file must be removed upon rollback");
-
-    // 9. Search post-rollback: package is no longer [installed]
-    let out_s3 = env.run(&["search", "waybar"]);
-    assert_eq!(out_s3.status.code(), Some(0));
-    let s3 = String::from_utf8_lossy(&out_s3.stdout);
-    assert!(!s3.contains("[installed]"));
-
-    // 10. List post-rollback shows both transactions
-    let out_list = env.run(&["list"]);
-    assert_eq!(out_list.status.code(), Some(0));
-    let s_list = String::from_utf8_lossy(&out_list.stdout);
-    assert!(s_list.contains("ROLLED_BACK"));
-    assert!(s_list.contains("COMMITTED"));
+    assert!(s2.contains("Unauthenticated"));
+    assert!(s2.contains("10 requests/min"));
+    assert!(s2.contains("60 requests/hr"));
 }
 
-// ============================================================================
-// 2. Interrupted Install Recovery Followed by Reinstallation
-// ============================================================================
-
 #[test]
-fn test_tier3_interrupted_install_recovery_then_reinstall() {
-    let env = TestEnvironment::new("t3-interrupted-reinstall");
-    let target = env.target_file();
+fn test_tier3_fuzzy_search_to_pre_inspection_to_category_filter() {
+    let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(100);
+    let mut app = App::new(cmd_tx, None);
 
-    // 1. Initialize schema via search
-    let _ = env.run(&["search"]);
-    let conn = env.open_db();
+    // 1. User searches with typo "hyprlnd"
+    let _ = app.update(Message::SearchInputChanged("hyprlnd".into()));
 
-    // 2. Simulate interrupted EXECUTING transaction
-    let interrupted_txn = "txn-crash-interrupted-77";
-    conn.execute(
-        "INSERT INTO transactions(txn_id, package_id, version, txn_type, status, started_at, initiator)
-         VALUES (?1, ?2, ?3, 'INSTALL', 'EXECUTING', 12345, 'cli_user')",
-        rusqlite::params![interrupted_txn, REAL_CATPPUCCIN_ID, REAL_CATPPUCCIN_VER],
-    )
-    .unwrap();
+    // 2. Add an uninspected bare repository to catalog
+    let bare_repo = CatalogRepository {
+        id: 5001,
+        owner: "custom-user".into(),
+        repo: "custom-setup".into(),
+        full_name: "custom-user/custom-setup".into(),
+        html_url: "https://github.com/custom-user/custom-setup".into(),
+        description: Some("Custom Wayland environment".into()),
+        stargazers_count: 450,
+        default_branch: "main".into(),
+        topics: vec!["hyprland".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
 
-    // Insert tentative record in installed_packages
-    conn.execute(
-        "INSERT INTO installed_packages(package_id, active_version, package_type, installed_at, updated_at, is_explicit, ref_count, install_txn_id)
-         VALUES (?1, ?2, 'theme', 12345, 12345, 1, 1, ?3)",
-        rusqlite::params![REAL_CATPPUCCIN_ID, REAL_CATPPUCCIN_VER, interrupted_txn],
-    )
-    .unwrap();
+    app.search_state.catalog_repositories = vec![bare_repo];
+    app.search_state.apply_filter();
 
-    // Simulate an uncommitted half-written partial file
-    fs::create_dir_all(target.parent().unwrap()).unwrap();
-    fs::write(&target, "/* partially written corrupt file from crashed install */").unwrap();
+    // Initially with All filter and query "hyprlnd", matches via topic "hyprland"
+    assert_eq!(app.search_state.filtered_repositories.len(), 1);
 
-    // Record COMPLETED operation in operations table so recovery knows which file to compensate
-    conn.execute(
-        "INSERT INTO operations(op_id, txn_id, sequence_num, op_type, target_path, pre_sha256, post_sha256, backup_id, status)
-         VALUES ('op-crash-01', ?1, 1, 'CREATE_FILE', ?2, NULL, 'partial_sha', NULL, 'COMPLETED')",
-        rusqlite::params![interrupted_txn, target.to_str().unwrap()],
-    )
-    .unwrap();
+    // 3. Switch category filter to Waybar (currently 0 matches because Waybar not yet detected)
+    app.search_state.set_filter(CategoryFilter::Waybar);
+    assert_eq!(app.search_state.filtered_repositories.len(), 0);
 
-    // 3. Execute recovery
-    let out_rec = env.run(&["recover"]);
-    assert_eq!(out_rec.status.code(), Some(0));
-    let s_rec = String::from_utf8_lossy(&out_rec.stdout);
-    assert!(s_rec.contains("Successfully recovered 1 transaction(s)"));
+    // 4. Background tree pre-inspection finishes, detecting a Waybar component
+    let waybar_detected = DetectedComponent {
+        component: ConfigComponent::Waybar,
+        syntax_format: SyntaxFormat::Jsonc,
+        root_path: ".config/waybar".into(),
+        entrypoint: "config.jsonc".into(),
+        style_file: Some("style.css".into()),
+        file_count: 2,
+        total_size_bytes: 3500,
+    };
 
-    // INVARIANT: Uncommitted file must be removed!
-    assert!(!target.exists(), "Uncommitted file must be deleted during recovery");
+    let _ = app.update(Message::Engine(EngineEvent::RepoPreInspected {
+        repo: "custom-user/custom-setup".into(),
+        components: vec![waybar_detected],
+    }));
 
-    // INVARIANT: installed_packages must be purged
-    let inst_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM installed_packages WHERE package_id = ?1",
-            rusqlite::params![REAL_CATPPUCCIN_ID],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(inst_count, 0);
-
-    // 4. Fresh reinstallation now succeeds smoothly
-    let out_inst = env.run(&["install", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(out_inst.status.code(), Some(0));
-    assert!(target.exists());
-
-    // Content is authentic
-    let content = fs::read_to_string(&target).unwrap();
-    assert!(content.contains("@define-color base #1e1e2e;"));
+    // 5. Filtered repositories dynamically update to include the repo under Waybar filter
+    assert_eq!(
+        app.search_state.filtered_repositories.len(),
+        1,
+        "Pre-inspected Waybar component must cause repo to appear in Waybar category filter"
+    );
+    assert_eq!(
+        app.search_state.filtered_repositories[0].resolved_full_name(),
+        "custom-user/custom-setup"
+    );
 }
 
-// ============================================================================
-// 3. Double Rollback Prevention
-// ============================================================================
+#[tokio::test]
+async fn test_tier3_offline_transition_with_pat_and_curated_feed() {
+    let env = TestEnvironment::new("t3-offline-feed");
 
-#[test]
-fn test_tier3_double_rollback_prevention() {
-    let env = TestEnvironment::new("t3-double-rollback");
+    // Configure PAT in settings
+    let _ = env.run_auth(&["--token", "ghp_offline_resilience_test_token_123"]);
+    let settings_file = env.settings_file();
+    assert!(settings_file.exists());
 
-    // 1. Install package
-    let out_inst = env.run(&["install", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(out_inst.status.code(), Some(0));
-    let txn_id = String::from_utf8_lossy(&out_inst.stdout).trim().to_string();
+    // Simulate complete offline status by providing unreachable CDN URL and empty local cache
+    let temp = TempDir::new().unwrap();
+    let cache_file = Utf8PathBuf::from_path_buf(temp.path().join("offline_cache.json")).unwrap();
+    let offline_cdn = "http://127.0.0.1:9/offline_catalog.json";
 
-    // 2. Rollback once -> succeeds
-    let out_rb1 = env.run(&["rollback", &txn_id]);
-    assert_eq!(out_rb1.status.code(), Some(0));
+    // 4-tier fallback runs offline
+    let catalog = resolve_catalog_4tier(Some(offline_cdn), Some(&cache_file)).await;
 
-    // 3. Attempt to rollback the same transaction again -> must fail with code 1
-    let out_rb2 = env.run(&["rollback", &txn_id]);
-    assert_eq!(out_rb2.status.code(), Some(1));
-    let stderr = String::from_utf8_lossy(&out_rb2.stderr);
-    assert!(stderr.starts_with("woderrise:"));
+    // Must gracefully resolve bundled catalog without errors or hangs
+    assert!(!catalog.repositories.is_empty());
+    assert_eq!(catalog.version, 1);
+
+    // Verify settings remains intact and secure (POSIX 0600)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(&settings_file).expect("Read metadata");
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    }
+    let loaded =
+        load_settings(&camino::Utf8PathBuf::from_path_buf(settings_file).unwrap()).unwrap();
+    assert_eq!(
+        loaded.github_token.as_deref(),
+        Some("ghp_offline_resilience_test_token_123")
+    );
 }

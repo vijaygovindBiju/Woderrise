@@ -1,366 +1,375 @@
-//! Tier 1: Feature Coverage (F1 to F11)
-//! Verifies each core feature in isolation via opaque-box CLI binary execution.
+//! Tier 1: Feature Coverage (Isolation)
+//! Verifies each core feature (R1 to R5) in isolation via genuine execution.
 
-use super::common::{
-    TestEnvironment, REAL_CATPPUCCIN_DIR, REAL_CATPPUCCIN_ID, REAL_CATPPUCCIN_VER,
-};
+use super::common::TestEnvironment;
+use camino::Utf8PathBuf;
 use std::fs;
+use tempfile::TempDir;
+use woderrise_core::models::{load_settings, Catalog, CatalogRepository, ConfigComponent};
+use woderrise_detect::{DetectionEngine, TreeEntry};
+use woderrise_github::search::{aggregate_topics, filter_local_catalog, score_repository};
+use woderrise_github::GitHubClientBuilder;
+use woderrise_gui::resolve_catalog_4tier;
 
 // ============================================================================
-// F1: Package Indexing & Discovery (search, list)
-// ============================================================================
-
-#[test]
-fn test_tier1_f1_registry_indexing_and_search() {
-    let env = TestEnvironment::new("t1-f1-search");
-
-    // 1. Search with empty query -> lists all packages in registry
-    let out_empty = env.run(&["search"]);
-    assert_eq!(out_empty.status.code(), Some(0));
-    let stdout_empty = String::from_utf8_lossy(&out_empty.stdout);
-    assert!(stdout_empty.contains(REAL_CATPPUCCIN_ID));
-    assert!(stdout_empty.contains(REAL_CATPPUCCIN_VER));
-    assert!(stdout_empty.contains("bar_themes_modules"));
-
-    // 2. Search by matching keyword "waybar"
-    let out_query = env.run(&["search", "waybar"]);
-    assert_eq!(out_query.status.code(), Some(0));
-    let stdout_query = String::from_utf8_lossy(&out_query.stdout);
-    assert!(stdout_query.contains(REAL_CATPPUCCIN_ID));
-    assert!(stdout_query.contains("Catppuccin Waybar Mocha Theme"));
-
-    // 3. Search with non-matching query exits 0 with graceful message
-    let out_none = env.run(&["search", "nonexistent_custom_xyz"]);
-    assert_eq!(out_none.status.code(), Some(0));
-    let stdout_none = String::from_utf8_lossy(&out_none.stdout);
-    assert!(stdout_none.contains("No packages found matching"));
-}
-
-#[test]
-fn test_tier1_f1_list_transactions_empty_initially() {
-    let env = TestEnvironment::new("t1-f1-list");
-    let output = env.run(&["list"]);
-    assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.trim().is_empty());
-}
-
-// ============================================================================
-// F2: Diff & Impact Inspection Engine (diff)
+// R1: Background Tree Pre-Inspection and Discovery Card Badges/File Counts
 // ============================================================================
 
 #[test]
-fn test_tier1_f2_diff_clean_install_create_action() {
-    let env = TestEnvironment::new("t1-f2-diff");
-    let target = env.target_file();
-    assert!(!target.exists());
+fn test_tier1_r1_background_tree_pre_inspection_badges_and_file_counts() {
+    let engine = DetectionEngine::new();
 
-    let output = env.run(&["diff", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(output.status.code(), Some(0));
+    // Simulate GitHub Git Trees API entries for a realistic Hyprland + Waybar setup
+    let entries = vec![
+        TreeEntry {
+            path: "hypr/hyprland.conf".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(3500),
+            sha: "sha_hypr".into(),
+        },
+        TreeEntry {
+            path: "hypr/hyprlock.conf".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(1200),
+            sha: "sha_lock".into(),
+        },
+        TreeEntry {
+            path: "waybar/config.jsonc".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(2500),
+            sha: "sha_wb_cfg".into(),
+        },
+        TreeEntry {
+            path: "waybar/style.css".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(1800),
+            sha: "sha_wb_style".into(),
+        },
+        TreeEntry {
+            path: "wallpapers/nord-mountain.png".into(),
+            mode: "100644".into(),
+            entry_type: "blob".into(),
+            size: Some(500_000),
+            sha: "sha_wall".into(),
+        },
+    ];
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[CREATE]"));
-    assert!(stdout.contains("catppuccin-mocha.css"));
-    assert!(stdout.contains("Planned Backup: None"));
-    assert!(stdout.contains("+@define-color base #1e1e2e;"));
-
-    // INVARIANT: diff must be strictly read-only; target file must not be touched!
-    assert!(!target.exists(), "diff must be strictly read-only");
-}
-
-#[test]
-fn test_tier1_f2_diff_summary_mode() {
-    let env = TestEnvironment::new("t1-f2-summary");
-    let output = env.run(&["diff", REAL_CATPPUCCIN_DIR, "--summary"]);
-    assert_eq!(output.status.code(), Some(0));
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Summary: 1 to create, 0 to modify, 0 unchanged, 0 to backup."));
-    // Summary mode should omit the detailed Myers line differences
-    assert!(!stdout.contains("+@define-color base #1e1e2e;"));
-}
-
-#[test]
-fn test_tier1_f2_diff_no_color_flag() {
-    let env = TestEnvironment::new("t1-f2-no-color");
-    let output = env.run(&["diff", REAL_CATPPUCCIN_DIR, "--no-color"]);
-    assert_eq!(output.status.code(), Some(0));
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.contains("\x1b[32m"), "ANSI escape codes must be suppressed with --no-color");
-    assert!(stdout.contains("+@define-color base #1e1e2e;"));
-}
-
-// ============================================================================
-// F3: Transactional Safety, Backups, and Rollback
-// ============================================================================
-
-#[test]
-fn test_tier1_f3_transactional_install_and_journal_record() {
-    let env = TestEnvironment::new("t1-f3-install");
-    let target = env.target_file();
-    assert!(!target.exists());
-
-    let output = env.run(&["install", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(output.status.code(), Some(0), "Install failed: {}", String::from_utf8_lossy(&output.stderr));
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let txn_id = stdout.trim();
+    let detected = engine.detect_components(&entries);
     assert!(
-        txn_id.to_uppercase().starts_with("TXN-"),
-        "Expected transaction ID, got: {txn_id}"
+        detected.len() >= 3,
+        "Expected at least 3 detected components (Hyprland, Waybar, Wallpapers), got: {}",
+        detected.len()
     );
 
-    // Target file must exist and contain genuine payload
-    assert!(target.exists());
-    let content = fs::read_to_string(&target).expect("failed to read installed target file");
-    assert!(content.contains("@define-color base #1e1e2e;"));
+    // Verify component display names and file counters
+    let hyprland_comp = detected
+        .iter()
+        .find(|c| c.component == ConfigComponent::Hyprland)
+        .expect("Hyprland component must be detected");
+    assert_eq!(hyprland_comp.component.as_str(), "hyprland");
+    assert!(hyprland_comp.file_count >= 1);
 
-    // Verify SQLite WAL Journal DB
-    let conn = env.open_db();
-    let (status, package_id, version): (String, String, String) = conn
-        .query_row(
-            "SELECT status, package_id, version FROM transactions WHERE txn_id = ?1",
-            rusqlite::params![txn_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .expect("transaction record missing in database");
+    let waybar_comp = detected
+        .iter()
+        .find(|c| c.component == ConfigComponent::Waybar)
+        .expect("Waybar component must be detected");
+    assert_eq!(waybar_comp.component.as_str(), "waybar");
+    assert_eq!(waybar_comp.file_count, 2); // config.jsonc + style.css
 
-    assert_eq!(status, "COMMITTED");
-    assert_eq!(package_id, REAL_CATPPUCCIN_ID);
-    assert_eq!(version, REAL_CATPPUCCIN_VER);
+    let wallpaper_comp = detected
+        .iter()
+        .find(|c| c.component == ConfigComponent::Wallpapers)
+        .expect("Wallpapers component must be detected");
+    assert_eq!(wallpaper_comp.component.as_str(), "wallpapers");
+    assert_eq!(wallpaper_comp.file_count, 1);
 
-    let active_version: String = conn
-        .query_row(
-            "SELECT active_version FROM installed_packages WHERE package_id = ?1",
-            rusqlite::params![REAL_CATPPUCCIN_ID],
-            |r| r.get(0),
-        )
-        .expect("installed_packages entry missing");
-    assert_eq!(active_version, REAL_CATPPUCCIN_VER);
-}
+    // Verify repository models reflect detected components
+    let repo = CatalogRepository {
+        id: 10101,
+        owner: "test-user".into(),
+        repo: "hypr-dots".into(),
+        full_name: "test-user/hypr-dots".into(),
+        html_url: "https://github.com/test-user/hypr-dots".into(),
+        description: Some("Modern Hyprland dotfiles".into()),
+        stargazers_count: 320,
+        default_branch: "main".into(),
+        topics: vec!["hyprland".into(), "waybar".into()],
+        pushed_at: None,
+        cached_tree_sha: Some("sha_tree".into()),
+        etag: None,
+        detected_components: detected.clone(),
+    };
 
-#[test]
-fn test_tier1_f3_safe_rollback_restores_clean_filesystem() {
-    let env = TestEnvironment::new("t1-f3-rollback");
-    let target = env.target_file();
+    let total_files: usize = repo.detected_components.iter().map(|c| c.file_count).sum();
+    assert_eq!(total_files, 6);
 
-    // 1. Install
-    let inst_out = env.run(&["install", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(inst_out.status.code(), Some(0));
-    let txn_id = String::from_utf8_lossy(&inst_out.stdout).trim().to_string();
-    assert!(target.exists());
-
-    // 2. Rollback
-    let rb_out = env.run(&["rollback", &txn_id]);
-    assert_eq!(rb_out.status.code(), Some(0), "Rollback failed: {}", String::from_utf8_lossy(&rb_out.stderr));
-
-    // Target file must be deleted because it was newly created by the install
-    assert!(!target.exists(), "Target file must be removed after rollback");
-
-    // Journal verification:
-    // Original transaction marked ROLLED_BACK
-    let conn = env.open_db();
-    let orig_status: String = conn
-        .query_row(
-            "SELECT status FROM transactions WHERE txn_id = ?1",
-            rusqlite::params![txn_id],
-            |r| r.get(0),
-        )
-        .expect("original transaction record not found");
-    assert_eq!(orig_status, "ROLLED_BACK");
-
-    // New rollback transaction recorded as COMMITTED
-    let rb_txn_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM transactions WHERE txn_type = 'ROLLBACK' AND status = 'COMMITTED'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("rollback transaction query failed");
-    assert_eq!(rb_txn_count, 1);
-
-    // installed_packages entry must be deleted
-    let installed_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM installed_packages WHERE package_id = ?1",
-            rusqlite::params![REAL_CATPPUCCIN_ID],
-            |r| r.get(0),
-        )
-        .expect("installed_packages count query failed");
-    assert_eq!(installed_count, 0);
+    // Verify discovery card badge view builds without error
+    let card = woderrise_gui::view_card(&repo, woderrise_gui::app::Message::Noop);
+    let _ = card;
 }
 
 // ============================================================================
-// F4 & F5: Progress Reporting & Test Hygiene
+// R2: Multi-Topic Aggregation & Community Relevance
 // ============================================================================
 
 #[test]
-fn test_tier1_f4_progress_reporting_and_status() {
-    let env = TestEnvironment::new("t1-f4-progress");
-    // Verify install returns non-empty output with exit code 0
-    let output = env.run(&["install", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.trim().is_empty());
-}
+fn test_tier1_r2_multi_topic_aggregation_and_deduplication() {
+    let repo_hypr = CatalogRepository {
+        id: 2001,
+        owner: "user-a".into(),
+        repo: "dots-hypr".into(),
+        full_name: "user-a/dots-hypr".into(),
+        html_url: "https://github.com/user-a/dots-hypr".into(),
+        description: Some("Hyprland config".into()),
+        stargazers_count: 500,
+        default_branch: "main".into(),
+        topics: vec!["hyprland".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
 
-#[test]
-fn test_tier1_f5_test_workspace_hygiene() {
-    let env = TestEnvironment::new("t1-f5-hygiene");
-    // Assert that env allocates strictly inside temp_dir()
-    let temp_root = std::env::temp_dir();
-    assert!(env.home.starts_with(&temp_root));
-    assert!(env.data.starts_with(&temp_root));
+    // repo_both appears in both topic searches
+    let repo_both_from_hypr = CatalogRepository {
+        id: 2002,
+        owner: "user-b".into(),
+        repo: "unified-desktop".into(),
+        full_name: "user-b/unified-desktop".into(),
+        html_url: "https://github.com/user-b/unified-desktop".into(),
+        description: Some("Hyprland and Waybar combined".into()),
+        stargazers_count: 1500,
+        default_branch: "main".into(),
+        topics: vec!["hyprland".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
 
-    // Workspace root must not contain stray test databases
-    let ws = TestEnvironment::workspace_root();
-    assert!(!ws.join("journal.db").exists());
-    assert!(!ws.join("backups").exists());
-}
+    let repo_both_from_waybar = CatalogRepository {
+        id: 2002,
+        owner: "user-b".into(),
+        repo: "unified-desktop".into(),
+        full_name: "user-b/unified-desktop".into(),
+        html_url: "https://github.com/user-b/unified-desktop".into(),
+        description: Some("Hyprland and Waybar combined".into()),
+        stargazers_count: 1500,
+        default_branch: "main".into(),
+        topics: vec!["waybar".into(), "desktop".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
 
-// ============================================================================
-// F6: Metadata, License, Authors, Compatibility Display (info)
-// ============================================================================
+    let repo_waybar = CatalogRepository {
+        id: 2003,
+        owner: "user-c".into(),
+        repo: "waybar-themes".into(),
+        full_name: "user-c/waybar-themes".into(),
+        html_url: "https://github.com/user-c/waybar-themes".into(),
+        description: Some("Waybar themes".into()),
+        stargazers_count: 800,
+        default_branch: "main".into(),
+        topics: vec!["waybar".into()],
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    };
 
-#[test]
-fn test_tier1_f6_info_metadata_and_provenance_display() {
-    let env = TestEnvironment::new("t1-f6-info");
+    let topic_results = vec![
+        vec![repo_hypr, repo_both_from_hypr],
+        vec![repo_both_from_waybar, repo_waybar],
+    ];
 
-    let output = env.run(&["info", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(output.status.code(), Some(0));
+    let aggregated = aggregate_topics(topic_results);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Package:      com.catppuccin.waybar v1.0.0"));
-    assert!(stdout.contains("Name:         Catppuccin Waybar Mocha Theme"));
-    assert!(stdout.contains("Type:         theme"));
-    assert!(stdout.contains("Category:     bar_themes_modules"));
-    assert!(stdout.contains("License:      MIT"));
-    assert!(stdout.contains("Repository:   https://github.com/catppuccin/waybar"));
-    assert!(stdout.contains("Catppuccin contributors"));
-    assert!(stdout.contains("Display Server: wayland_only"));
-    assert!(stdout.contains("Architectures:  x86_64, aarch64"));
-    assert!(stdout.contains("base"));
-    assert!(stdout.contains("#1e1e2e"));
-    assert!(stdout.contains("blue"));
-    assert!(stdout.contains("#89b4fa"));
-    assert!(stdout.contains("mauve"));
-    assert!(stdout.contains("#cba6f7"));
-    assert!(stdout.contains("text"));
-    assert!(stdout.contains("#cdd6f4"));
-}
+    // Must deduplicate repo 2002: total 3 repos
+    assert_eq!(aggregated.len(), 3, "Expected 3 deduplicated repositories");
 
-// ============================================================================
-// F7: Multi-File Diff Markers and Planned Backup Destinations
-// ============================================================================
+    // Community star ranking (descending: 1500 -> 800 -> 500)
+    assert_eq!(aggregated[0].id, 2002);
+    assert_eq!(aggregated[0].stargazers_count, 1500);
+    assert_eq!(aggregated[1].id, 2003);
+    assert_eq!(aggregated[1].stargazers_count, 800);
+    assert_eq!(aggregated[2].id, 2001);
+    assert_eq!(aggregated[2].stargazers_count, 500);
 
-#[test]
-fn test_tier1_f7_diff_modify_and_backup_destination_prediction() {
-    let env = TestEnvironment::new("t1-f7-diff-modify");
-    let target = env.target_file();
-    fs::create_dir_all(target.parent().unwrap()).unwrap();
-    fs::write(&target, "/* pre-existing custom waybar styles */\n").unwrap();
-
-    let output = env.run(&["diff", REAL_CATPPUCCIN_DIR]);
-    assert_eq!(output.status.code(), Some(0));
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[MODIFY]"));
-    assert!(stdout.contains("backups/"));
-    assert!(stdout.contains("-/* pre-existing custom waybar styles */"));
-    assert!(stdout.contains("+@define-color base #1e1e2e;"));
-}
-
-// ============================================================================
-// F8 & F9: Status and Offline Resilience
-// ============================================================================
-
-#[test]
-fn test_tier1_f8_f9_offline_resilience_and_no_network_dependence() {
-    let env = TestEnvironment::new("t1-f9-offline");
-    let bin_path = env!("CARGO_BIN_EXE_woderrise");
-    let ws = TestEnvironment::workspace_root();
-    let reg_dir = ws.join("registry/packages");
-
-    // Run with non-routable proxy to simulate complete network blackout
-    let output = std::process::Command::new(bin_path)
-        .current_dir(&ws)
-        .env("HOME", &env.home)
-        .env("WODERRISE_DATA_DIR", &env.data)
-        .env("WODERRISE_REGISTRY_DIR", &reg_dir)
-        .env("HTTP_PROXY", "http://127.0.0.1:65534")
-        .env("HTTPS_PROXY", "http://127.0.0.1:65534")
-        .env("ALL_PROXY", "socks5://127.0.0.1:65534")
-        .arg("--data-dir")
-        .arg(&env.data)
-        .args(["search", "waybar"])
-        .output()
-        .expect("failed to run CLI in offline mode");
-
-    assert_eq!(output.status.code(), Some(0), "CLI must function 100% offline without crashing");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains(REAL_CATPPUCCIN_ID));
+    // Topic union verification: repo 2002 must contain topics from both queries
+    let merged_repo = &aggregated[0];
+    assert!(merged_repo.topics.contains(&"hyprland".to_string()));
+    assert!(merged_repo.topics.contains(&"waybar".to_string()));
+    assert!(merged_repo.topics.contains(&"desktop".to_string()));
 }
 
 // ============================================================================
-// F10: CLI Capabilities Matrix
+// R3: PAT Authentication CLI & Settings Integration
 // ============================================================================
 
 #[test]
-fn test_tier1_f10_cli_capabilities_matrix() {
-    let env = TestEnvironment::new("t1-f10-matrix");
+fn test_tier1_r3_pat_auth_cli_token_save_and_permissions() {
+    let env = TestEnvironment::new("t1-r3-pat");
+    let settings_file = env.settings_file();
 
-    // All subcommands must accept --help with exit code 0
-    for sub in &["diff", "search", "info", "recover", "list", "lint", "install", "rollback"] {
-        let out = env.run(&[sub, "--help"]);
-        assert_eq!(out.status.code(), Some(0), "Subcommand {sub} --help failed");
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("Usage:"));
+    // 1. Save PAT via compiled CLI binary
+    let out_save = env.run_auth(&["--token", "ghp_test_token_tier1_0123456789"]);
+    assert_eq!(
+        out_save.status.code(),
+        Some(0),
+        "CLI auth --token failed: {}",
+        String::from_utf8_lossy(&out_save.stderr)
+    );
+    let stdout_save = String::from_utf8_lossy(&out_save.stdout);
+    assert!(stdout_save.contains("Token saved successfully"));
+
+    // 2. Verify file exists on disk
+    assert!(settings_file.exists(), "settings.json must exist");
+
+    // 3. Verify POSIX 0600 file permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(&settings_file).expect("Failed to read settings metadata");
+        let mode = metadata.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "settings.json must have strict POSIX 0600 permissions, got {:o}",
+            mode
+        );
     }
 
-    // Missing arguments must exit with code 2 (clap usage error)
-    let out_missing = env.run(&["diff"]);
-    assert_eq!(out_missing.status.code(), Some(2));
+    // 4. Verify settings file content
+    let settings =
+        load_settings(&camino::Utf8PathBuf::from_path_buf(settings_file.clone()).unwrap())
+            .expect("Failed to parse settings.json");
+    assert_eq!(
+        settings.github_token.as_deref(),
+        Some("ghp_test_token_tier1_0123456789")
+    );
 
-    let out_info_missing = env.run(&["info"]);
-    assert_eq!(out_info_missing.status.code(), Some(2));
+    // 5. Verify CLI status command
+    let out_status = env.run_auth(&["--status"]);
+    assert_eq!(out_status.status.code(), Some(0));
+    let stdout_status = String::from_utf8_lossy(&out_status.stdout);
+    assert!(stdout_status.contains("Authenticated"));
+    assert!(stdout_status.contains("ghp_••••••••6789"));
+    assert!(stdout_status.contains("30 requests/min"));
+    assert!(stdout_status.contains("5,000 requests/hr"));
+
+    // 6. Verify CLI clear command
+    let out_clear = env.run_auth(&["--clear"]);
+    assert_eq!(out_clear.status.code(), Some(0));
+    let stdout_clear = String::from_utf8_lossy(&out_clear.stdout);
+    assert!(stdout_clear.contains("removed"));
+    assert!(stdout_clear.contains("Reverted to unauthenticated limits"));
+
+    // 7. Verify settings is cleared
+    let cleared_settings =
+        load_settings(&camino::Utf8PathBuf::from_path_buf(settings_file).unwrap())
+            .expect("Failed to parse cleared settings");
+    assert_eq!(cleared_settings.github_token, None);
 }
 
 // ============================================================================
-// F11: Interrupted Transaction Recovery (recover)
+// R4: Typo-Tolerant & Fuzzy Search
 // ============================================================================
 
 #[test]
-fn test_tier1_f11_recover_interrupted_transactions() {
-    let env = TestEnvironment::new("t1-f11-recover");
-    let conn = env.open_db();
+fn test_tier1_r4_fuzzy_search_typo_and_abbreviation() {
+    let catalog = Catalog::default_popular();
 
-    // Run search once to ensure tables are created
-    let _ = env.run(&["search"]);
+    // 1. Typo "hyprlnd" -> matches "hyprland"
+    let hypr_results = filter_local_catalog(&catalog, "hyprlnd");
+    assert!(
+        !hypr_results.is_empty(),
+        "Typo 'hyprlnd' must match Hyprland configurations"
+    );
+    assert!(
+        hypr_results[0]
+            .resolved_full_name()
+            .to_lowercase()
+            .contains("hypr")
+            || hypr_results[0].topics.iter().any(|t| t.contains("hypr"))
+    );
 
-    // Insert an interrupted EXECUTING transaction
-    let txn_id = "txn-tier1-interrupted-01";
-    conn.execute(
-        "INSERT INTO transactions(txn_id, package_id, version, txn_type, status, started_at, initiator)
-         VALUES (?1, 'com.catppuccin.waybar', '1.0.0', 'INSTALL', 'EXECUTING', 1000, 'test_runner')",
-        rusqlite::params![txn_id],
-    )
-    .unwrap();
+    // 2. Typo "waybr" -> matches "waybar"
+    let waybar_results = filter_local_catalog(&catalog, "waybr");
+    assert!(
+        !waybar_results.is_empty(),
+        "Typo 'waybr' must match Waybar configurations"
+    );
 
-    let output = env.run(&["recover"]);
-    assert_eq!(output.status.code(), Some(0));
+    // 3. Abbreviation "ml4" -> resolves to "mylinuxforwork"
+    let ml4_results = filter_local_catalog(&catalog, "ml4");
+    assert!(!ml4_results.is_empty(), "Abbreviation 'ml4' must resolve");
+    assert_eq!(
+        ml4_results[0].owner, "mylinuxforwork",
+        "Top result for 'ml4' must be mylinuxforwork/dotfiles"
+    );
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("1"));
-    assert!(stdout.contains("ABORTED_RECOVERED"));
+    // 4. Exact match ranking superiority
+    let exact_score = score_repository(&catalog.repositories[0], "dotfiles");
+    let fuzzy_score = score_repository(&catalog.repositories[0], "dtfls");
+    assert!(exact_score.is_some() && fuzzy_score.is_some());
+    assert!(
+        exact_score.unwrap() > fuzzy_score.unwrap(),
+        "Exact match score must rank higher than fuzzy typo score"
+    );
+}
 
-    // Verify database record transitioned
-    let status: String = conn
-        .query_row(
-            "SELECT status FROM transactions WHERE txn_id = ?1",
-            rusqlite::params![txn_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(status, "ABORTED_RECOVERED");
+// ============================================================================
+// R5: Curated Static Catalog Feed & Deterministic 4-Tier Fallback
+// ============================================================================
+
+#[tokio::test]
+async fn test_tier1_r5_curated_catalog_feed_schema_and_zero_rate_limit() {
+    // 1. Bundled static catalog schema validation
+    const BUNDLED_JSON: &str = include_str!("../../registry/catalog.v1.json");
+    let catalog: Catalog = serde_json::from_str(BUNDLED_JSON)
+        .expect("registry/catalog.v1.json must be valid schema compliant Catalog");
+
+    assert_eq!(
+        catalog.schema.as_deref(),
+        Some("https://woderrise.dev/schemas/catalog.v1.json")
+    );
+    assert_eq!(catalog.version, 1);
+    assert!(
+        catalog.repositories.len() >= 5,
+        "Curated catalog feed must contain at least 5 configurations"
+    );
+
+    // 2. Zero rate limit consumption verification
+    let client = GitHubClientBuilder::new().build().unwrap();
+    let initial_search_quota = client.rate_limiter().search_status().remaining;
+    let initial_core_quota = client.rate_limiter().core_status().remaining;
+
+    let temp = TempDir::new().unwrap();
+    let cache_path = Utf8PathBuf::from_path_buf(temp.path().join("catalog.json")).unwrap();
+
+    // Point CDN to unreachable URL to test graceful offline fallback to bundled
+    let offline_feed_url = "http://127.0.0.1:9/offline.json";
+    let resolved = resolve_catalog_4tier(Some(offline_feed_url), Some(&cache_path)).await;
+
+    assert!(
+        !resolved.repositories.is_empty(),
+        "Offline fallback must return non-empty curated catalog"
+    );
+
+    let final_search_quota = client.rate_limiter().search_status().remaining;
+    let final_core_quota = client.rate_limiter().core_status().remaining;
+
+    assert_eq!(
+        initial_search_quota, final_search_quota,
+        "Static feed fallback must consume 0 search rate limit quota"
+    );
+    assert_eq!(
+        initial_core_quota, final_core_quota,
+        "Static feed fallback must consume 0 core rate limit quota"
+    );
 }

@@ -760,3 +760,306 @@ async fn test_app_installation_flow_genuine_staged_files() {
         _ => panic!("Expected ApplyInstallation command"),
     }
 }
+
+#[test]
+fn test_settings_screen_navigation_and_interactions() {
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(20);
+    let mut app = App::new(cmd_tx, None);
+
+    // Initial commands drained
+    let _ = cmd_rx.try_recv(); // LoadHistory
+    let _ = cmd_rx.try_recv(); // FetchRateLimits
+    let _ = cmd_rx.try_recv(); // RefreshCatalog
+
+    // 1. Navigate to Settings screen
+    let _ = app.update(Message::NavigateTo(Screen::Settings));
+    assert_eq!(app.active_screen, Screen::Settings);
+    // Should dispatch FetchRateLimits command
+    match cmd_rx.try_recv() {
+        Ok(GuiCommand::FetchRateLimits) => (),
+        other => panic!(
+            "Expected FetchRateLimits command on navigating to Settings, got {:?}",
+            other
+        ),
+    }
+
+    // 2. Modify token input
+    let _ = app.update(Message::SettingsTokenChanged("ghp_test9876543210".into()));
+    assert_eq!(app.settings_state.token_input, "ghp_test9876543210");
+
+    // 3. Toggle token masking
+    let _ = app.update(Message::SettingsToggleMask);
+    assert!(!app.settings_state.is_masked);
+    let _ = app.update(Message::SettingsToggleMask);
+    assert!(app.settings_state.is_masked);
+
+    // 4. Save token
+    let _ = app.update(Message::SettingsSaveToken);
+    assert!(app.settings_state.is_busy);
+    match cmd_rx.try_recv() {
+        Ok(GuiCommand::SetGitHubToken { token }) => {
+            assert_eq!(token, Some("ghp_test9876543210".to_string()));
+        }
+        other => panic!("Expected SetGitHubToken command, got {:?}", other),
+    }
+
+    // 5. RateLimitsUpdated event resolves saving state
+    let _ = app.update(Message::Engine(EngineEvent::RateLimitsUpdated {
+        core: woderrise_github::RateLimitStatus {
+            resource: woderrise_github::RateLimitResource::Core,
+            limit: 5000,
+            remaining: 4999,
+            reset_time: chrono::Utc::now(),
+            used: 1,
+        },
+        search: woderrise_github::RateLimitStatus {
+            resource: woderrise_github::RateLimitResource::Search,
+            limit: 30,
+            remaining: 30,
+            reset_time: chrono::Utc::now(),
+            used: 0,
+        },
+    }));
+    assert!(!app.settings_state.is_busy);
+    assert_eq!(
+        app.settings_state.saved_token,
+        Some("ghp_test9876543210".to_string())
+    );
+    assert_eq!(app.settings_state.masked_display(), "ghp_••••••••3210");
+    assert_eq!(app.search_state.rate_limits.core_limit, 5000);
+    assert_eq!(app.search_state.rate_limits.search_limit, 30);
+
+    // 6. Clear token
+    let _ = app.update(Message::SettingsClearToken);
+    assert!(app.settings_state.is_busy);
+    match cmd_rx.try_recv() {
+        Ok(GuiCommand::SetGitHubToken { token }) => {
+            assert_eq!(token, None);
+        }
+        other => panic!("Expected SetGitHubToken {{ token: None }}, got {:?}", other),
+    }
+
+    // 7. RateLimitsUpdated event on clear resolves state
+    let _ = app.update(Message::Engine(EngineEvent::RateLimitsUpdated {
+        core: woderrise_github::RateLimitStatus {
+            resource: woderrise_github::RateLimitResource::Core,
+            limit: 60,
+            remaining: 60,
+            reset_time: chrono::Utc::now(),
+            used: 0,
+        },
+        search: woderrise_github::RateLimitStatus {
+            resource: woderrise_github::RateLimitResource::Search,
+            limit: 10,
+            remaining: 10,
+            reset_time: chrono::Utc::now(),
+            used: 0,
+        },
+    }));
+    assert!(!app.settings_state.is_busy);
+    assert_eq!(app.settings_state.saved_token, None);
+    assert_eq!(
+        app.settings_state.masked_display(),
+        "None (Unauthenticated)"
+    );
+    assert_eq!(app.search_state.rate_limits.core_limit, 60);
+    assert_eq!(app.search_state.rate_limits.search_limit, 10);
+}
+
+fn create_bare_repo(
+    id: u64,
+    owner: &str,
+    repo: &str,
+    desc: &str,
+    topics: Vec<&str>,
+) -> CatalogRepository {
+    CatalogRepository {
+        id,
+        owner: owner.into(),
+        repo: repo.into(),
+        full_name: format!("{}/{}", owner, repo),
+        html_url: format!("https://github.com/{}/{}", owner, repo),
+        description: Some(desc.into()),
+        stargazers_count: 100 * id,
+        default_branch: "main".into(),
+        topics: topics.into_iter().map(String::from).collect(),
+        pushed_at: None,
+        cached_tree_sha: None,
+        etag: None,
+        detected_components: vec![],
+    }
+}
+
+#[test]
+fn test_repo_pre_inspected_updates_catalog_and_category_filter() {
+    let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(10);
+    let mut app = App::new(cmd_tx, None);
+
+    // Initial repo with empty detected components, topics that do not match Waybar
+    let bare_repo = create_bare_repo(
+        42,
+        "custom-dev",
+        "custom-setup",
+        "A minimal desktop configuration",
+        vec!["desktop", "minimal"],
+    );
+
+    app.search_state.catalog_repositories = vec![bare_repo];
+    app.search_state.apply_filter();
+
+    // With All filter, repo is present
+    assert_eq!(app.search_state.filtered_repositories.len(), 1);
+
+    // Switch to Waybar filter: since detected_components is empty and text has no 'waybar', matches is false
+    app.search_state.set_filter(CategoryFilter::Waybar);
+    assert_eq!(app.search_state.filtered_repositories.len(), 0);
+
+    // Dispatch RepoPreInspected event with detected Waybar component
+    let waybar_comp = DetectedComponent {
+        component: ConfigComponent::Waybar,
+        syntax_format: SyntaxFormat::Jsonc,
+        root_path: ".config/waybar".into(),
+        entrypoint: "config.jsonc".into(),
+        style_file: Some("style.css".into()),
+        file_count: 3,
+        total_size_bytes: 4096,
+    };
+
+    let _ = app.update(Message::Engine(EngineEvent::RepoPreInspected {
+        repo: "custom-dev/custom-setup".into(),
+        components: vec![waybar_comp.clone()],
+    }));
+
+    // Verify catalog_repositories updated
+    let updated = &app.search_state.catalog_repositories[0];
+    assert_eq!(updated.detected_components.len(), 1);
+    assert_eq!(
+        updated.detected_components[0].component,
+        ConfigComponent::Waybar
+    );
+    assert_eq!(updated.detected_components[0].file_count, 3);
+
+    // Verify filtered_repositories updated automatically via apply_filter!
+    assert_eq!(app.search_state.filtered_repositories.len(), 1);
+    assert_eq!(
+        app.search_state.filtered_repositories[0].resolved_full_name(),
+        "custom-dev/custom-setup"
+    );
+}
+
+#[test]
+fn test_card_view_reflects_detected_components_and_file_counts() {
+    let mut repo = create_bare_repo(
+        100,
+        "community",
+        "awesome-dots",
+        "Curated setup",
+        vec!["hyprland"],
+    );
+
+    repo.detected_components = vec![
+        DetectedComponent {
+            component: ConfigComponent::Waybar,
+            syntax_format: SyntaxFormat::Jsonc,
+            root_path: ".config/waybar".into(),
+            entrypoint: "config.jsonc".into(),
+            style_file: Some("style.css".into()),
+            file_count: 3,
+            total_size_bytes: 3000,
+        },
+        DetectedComponent {
+            component: ConfigComponent::Hyprlock,
+            syntax_format: SyntaxFormat::LegacyConf,
+            root_path: ".config/hypr".into(),
+            entrypoint: "hyprlock.conf".into(),
+            style_file: None,
+            file_count: 1,
+            total_size_bytes: 800,
+        },
+    ];
+
+    // Total files should be 4 (3 + 1)
+    let total_files: usize = repo.detected_components.iter().map(|c| c.file_count).sum();
+    assert_eq!(total_files, 4);
+
+    // Verify view_card builds without panic
+    let card_element = woderrise_gui::view_card(&repo, Message::Noop);
+    let _ = card_element; // builds successfully
+}
+
+#[tokio::test]
+async fn test_spawn_tree_pre_inspection_cancellation() {
+    let mock_server = wiremock::MockServer::start().await;
+    let client = woderrise_github::GitHubClient::builder()
+        .base_url(mock_server.uri())
+        .build()
+        .unwrap();
+
+    let detection_engine = std::sync::Arc::new(woderrise_detect::DetectionEngine::new());
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(10);
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    // Pre-cancel the token
+    cancel_token.cancel();
+
+    let repo = create_bare_repo(1, "owner", "repo", "desc", vec![]);
+    woderrise_gui::spawn_tree_pre_inspection(
+        vec![repo],
+        client,
+        detection_engine,
+        event_tx,
+        cancel_token,
+    );
+
+    // Since token is cancelled, no events should be emitted
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(event_rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn test_spawn_tree_pre_inspection_rate_limit_protection() {
+    let mock_server = wiremock::MockServer::start().await;
+    let client = woderrise_github::GitHubClient::builder()
+        .base_url(mock_server.uri())
+        .build()
+        .unwrap();
+
+    // Consume rate limit so core_status().remaining < 5
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-ratelimit-resource",
+        reqwest::header::HeaderValue::from_static("core"),
+    );
+    headers.insert(
+        "x-ratelimit-limit",
+        reqwest::header::HeaderValue::from_static("60"),
+    );
+    headers.insert(
+        "x-ratelimit-remaining",
+        reqwest::header::HeaderValue::from_static("2"),
+    );
+    headers.insert(
+        "x-ratelimit-reset",
+        reqwest::header::HeaderValue::from_static("1761500000"),
+    );
+    client
+        .rate_limiter()
+        .update_from_headers(&headers, woderrise_github::RateLimitResource::Core);
+
+    let detection_engine = std::sync::Arc::new(woderrise_detect::DetectionEngine::new());
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(10);
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    let repo = create_bare_repo(1, "owner", "repo", "desc", vec![]);
+    woderrise_gui::spawn_tree_pre_inspection(
+        vec![repo],
+        client,
+        detection_engine,
+        event_tx,
+        cancel_token,
+    );
+
+    // Quota < 5 prevents pre-inspection from executing
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(event_rx.try_recv().is_err());
+}

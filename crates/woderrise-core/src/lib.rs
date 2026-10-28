@@ -39,9 +39,19 @@ mod tests {
         assert_eq!(CURRENT_CATALOG_VERSION, 1);
         assert_eq!(CURRENT_MANIFEST_VERSION, 1);
         assert_eq!(CURRENT_JOURNAL_VERSION, 1);
+        assert_eq!(CURRENT_SETTINGS_VERSION, 1);
         assert!(CATALOG_SCHEMA_V1.starts_with("https://woderrise.dev/schemas/"));
         assert!(MANIFEST_SCHEMA_V1.starts_with("https://woderrise.dev/schemas/"));
         assert!(JOURNAL_SCHEMA_V1.starts_with("https://woderrise.dev/schemas/"));
+    }
+
+    #[test]
+    fn test_settings_default() {
+        let settings = Settings::default();
+        assert_eq!(settings.version, 1);
+        assert!(settings.github_token.is_none());
+        assert!(settings.auto_backup);
+        assert_eq!(settings.theme, "system");
     }
 
     #[test]

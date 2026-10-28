@@ -59,6 +59,8 @@ semver = { version = "1.0.28", features = ["serde"] }
 regex = "1.13.1"
 url = "2.5.4"
 similar = "2.7"
+sublime_fuzzy = "0.7.0"
+strsim = "0.11.1"
 
 # Logging & Diagnostics
 tracing = "0.1.44"

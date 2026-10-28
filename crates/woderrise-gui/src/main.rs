@@ -1,8 +1,17 @@
-//! Woderrise Native Wayland Desktop GUI Application.
+//! Woderrise Native Wayland Desktop GUI Application and CLI entrypoint.
 //!
-//! Entrypoint initializing logging, Tokio runtime, XDG directories,
-//! domain engines, startup crash recovery, and the Iced v0.14+ presentation loop.
+//! Handles CLI subcommands (such as `auth` and `config`) and dispatches
+//! to the Iced v0.14+ desktop application when launched without subcommands or with `gui`.
 
-fn main() -> iced::Result {
-    woderrise_gui::run()
+use std::error::Error;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if woderrise_gui::cli::is_cli_invocation(&args) {
+        woderrise_gui::cli::run_cli(&args)?;
+        Ok(())
+    } else {
+        woderrise_gui::run()?;
+        Ok(())
+    }
 }

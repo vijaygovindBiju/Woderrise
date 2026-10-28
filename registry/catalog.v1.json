@@ -1,0 +1,367 @@
+{
+  "$schema": "https://woderrise.dev/schemas/catalog.v1.json",
+  "version": 1,
+  "last_synced": "2026-10-28T00:00:00Z",
+  "repositories": [
+    {
+      "id": 647000001,
+      "owner": "mylinuxforwork",
+      "repo": "dotfiles",
+      "full_name": "mylinuxforwork/dotfiles",
+      "html_url": "https://github.com/mylinuxforwork/dotfiles",
+      "description": "The ML4W Dotfiles for Hyprland - An advanced and customizable desktop suite",
+      "stargazers_count": 5086,
+      "default_branch": "main",
+      "topics": [
+        "hyprland",
+        "dotfiles",
+        "waybar",
+        "arch",
+        "linux",
+        "rofi",
+        "ml4w"
+      ],
+      "pushed_at": "2026-10-27T12:00:00Z",
+      "cached_tree_sha": "d3b07384d113edec49eaa6238ad5ff00",
+      "etag": "W/\"ml4w-feed-etag-001\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 24,
+          "total_size_bytes": 42000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": ".config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 12,
+          "total_size_bytes": 28000
+        },
+        {
+          "component": "hyprlock",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprlock.conf",
+          "file_count": 2,
+          "total_size_bytes": 4500
+        },
+        {
+          "component": "hypridle",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hypridle.conf",
+          "file_count": 1,
+          "total_size_bytes": 1800
+        },
+        {
+          "component": "wallpapers",
+          "syntax_format": "binary_asset",
+          "root_path": "wallpapers",
+          "entrypoint": "default.png",
+          "file_count": 15,
+          "total_size_bytes": 12400000
+        }
+      ]
+    },
+    {
+      "id": 647000002,
+      "owner": "end-4",
+      "repo": "dots-hyprland",
+      "full_name": "end-4/dots-hyprland",
+      "html_url": "https://github.com/end-4/dots-hyprland",
+      "description": "Fabric / Quickshell / Hyprland configuration with Material You aesthetic",
+      "stargazers_count": 16483,
+      "default_branch": "main",
+      "topics": [
+        "dotfiles",
+        "hyprland",
+        "linux",
+        "material-design",
+        "quickshell",
+        "rice",
+        "wayland"
+      ],
+      "pushed_at": "2026-10-27T10:30:00Z",
+      "cached_tree_sha": "a1b2c3d4e5f678901234567890abcdef",
+      "etag": "W/\"end4-feed-etag-002\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 32,
+          "total_size_bytes": 68000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": ".config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 10,
+          "total_size_bytes": 25000
+        }
+      ]
+    },
+    {
+      "id": 647000003,
+      "owner": "prasanthrangan",
+      "repo": "hyprdots",
+      "full_name": "prasanthrangan/hyprdots",
+      "html_url": "https://github.com/prasanthrangan/hyprdots",
+      "description": "Custom Hyprland desktop configuration and themes suite",
+      "stargazers_count": 8475,
+      "default_branch": "main",
+      "topics": [
+        "archlinux",
+        "dotfiles",
+        "hyprdots",
+        "hyprland",
+        "waybar",
+        "rice"
+      ],
+      "pushed_at": "2026-10-26T18:45:00Z",
+      "cached_tree_sha": "3c8b0dfb5e7f8e41a67b80463513f10d57cab1a4",
+      "etag": "W/\"hyprdots-feed-etag-003\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": "Configs/.config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 18,
+          "total_size_bytes": 52000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": "Configs/.config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 8,
+          "total_size_bytes": 21000
+        },
+        {
+          "component": "hyprlock",
+          "syntax_format": "legacy_conf",
+          "root_path": "Configs/.config/hypr",
+          "entrypoint": "hyprlock.conf",
+          "file_count": 1,
+          "total_size_bytes": 3200
+        }
+      ]
+    },
+    {
+      "id": 647000004,
+      "owner": "JaKooLit",
+      "repo": "Hyprland-Dots",
+      "full_name": "JaKooLit/Hyprland-Dots",
+      "html_url": "https://github.com/JaKooLit/Hyprland-Dots",
+      "description": "JaKooLit's automated and curated Hyprland configuration files",
+      "stargazers_count": 3200,
+      "default_branch": "main",
+      "topics": [
+        "arch",
+        "dotfiles",
+        "hyprland",
+        "waybar",
+        "rofi"
+      ],
+      "pushed_at": "2026-10-26T15:20:00Z",
+      "cached_tree_sha": "f1e2d3c4b5a678901234567890abcdef",
+      "etag": "W/\"jakoolit-feed-etag-004\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": "config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 20,
+          "total_size_bytes": 48000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": "config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 14,
+          "total_size_bytes": 33000
+        },
+        {
+          "component": "hyprlock",
+          "syntax_format": "legacy_conf",
+          "root_path": "config/hypr",
+          "entrypoint": "hyprlock.conf",
+          "file_count": 1,
+          "total_size_bytes": 2800
+        }
+      ]
+    },
+    {
+      "id": 647000005,
+      "owner": "catppuccin",
+      "repo": "hyprland",
+      "full_name": "catppuccin/hyprland",
+      "html_url": "https://github.com/catppuccin/hyprland",
+      "description": "Soothing pastel theme for Hyprland",
+      "stargazers_count": 1100,
+      "default_branch": "main",
+      "topics": [
+        "catppuccin",
+        "hyprland",
+        "theme"
+      ],
+      "pushed_at": "2026-10-25T09:10:00Z",
+      "cached_tree_sha": "7a8b9c0d1e2f3a4b5c6d7e8f90123456",
+      "etag": "W/\"catppuccin-feed-etag-005\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": "themes",
+          "entrypoint": "mocha.conf",
+          "file_count": 4,
+          "total_size_bytes": 8500
+        }
+      ]
+    },
+    {
+      "id": 647000006,
+      "owner": "SolDoesTech",
+      "repo": "HyprV4",
+      "full_name": "SolDoesTech/HyprV4",
+      "html_url": "https://github.com/SolDoesTech/HyprV4",
+      "description": "HyprV4 Hyprland config files and Waybar setup for Arch Linux",
+      "stargazers_count": 2150,
+      "default_branch": "main",
+      "topics": [
+        "hyprland",
+        "waybar",
+        "wofi",
+        "dotfiles",
+        "archlinux"
+      ],
+      "pushed_at": "2026-10-24T14:30:00Z",
+      "cached_tree_sha": "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b",
+      "etag": "W/\"soldestech-feed-etag-006\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 16,
+          "total_size_bytes": 36000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": ".config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 8,
+          "total_size_bytes": 19000
+        }
+      ]
+    },
+    {
+      "id": 647000007,
+      "owner": "hyper-dot",
+      "repo": "arch-hyprland",
+      "full_name": "hyper-dot/arch-hyprland",
+      "html_url": "https://github.com/hyper-dot/arch-hyprland",
+      "description": "Modern minimalist Hyprland configuration with Waybar and Hyprlock",
+      "stargazers_count": 1820,
+      "default_branch": "main",
+      "topics": [
+        "hyprland",
+        "waybar",
+        "hyprlock",
+        "dotfiles"
+      ],
+      "pushed_at": "2026-10-25T16:00:00Z",
+      "cached_tree_sha": "1234567890abcdef1234567890abcdef",
+      "etag": "W/\"hyperdot-feed-etag-007\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 14,
+          "total_size_bytes": 31000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": ".config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 6,
+          "total_size_bytes": 16000
+        },
+        {
+          "component": "hyprlock",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprlock.conf",
+          "file_count": 1,
+          "total_size_bytes": 2200
+        }
+      ]
+    },
+    {
+      "id": 647000008,
+      "owner": "kkharji",
+      "repo": "dotfiles",
+      "full_name": "kkharji/dotfiles",
+      "html_url": "https://github.com/kkharji/dotfiles",
+      "description": "Minimalist Hyprland and Waybar dotfiles with clean GTK integration",
+      "stargazers_count": 940,
+      "default_branch": "main",
+      "topics": [
+        "hyprland",
+        "waybar",
+        "gtk",
+        "dotfiles"
+      ],
+      "pushed_at": "2026-10-26T08:15:00Z",
+      "cached_tree_sha": "abcdef1234567890abcdef1234567890",
+      "etag": "W/\"kkharji-feed-etag-008\"",
+      "detected_components": [
+        {
+          "component": "hyprland",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/hypr",
+          "entrypoint": "hyprland.conf",
+          "file_count": 10,
+          "total_size_bytes": 22000
+        },
+        {
+          "component": "waybar",
+          "syntax_format": "jsonc",
+          "root_path": ".config/waybar",
+          "entrypoint": "config.jsonc",
+          "style_file": "style.css",
+          "file_count": 5,
+          "total_size_bytes": 14000
+        },
+        {
+          "component": "gtk",
+          "syntax_format": "legacy_conf",
+          "root_path": ".config/gtk-3.0",
+          "entrypoint": "settings.ini",
+          "file_count": 3,
+          "total_size_bytes": 4800
+        }
+      ]
+    }
+  ]
+}

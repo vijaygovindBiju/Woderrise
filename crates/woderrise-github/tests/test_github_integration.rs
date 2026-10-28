@@ -678,12 +678,267 @@ async fn test_github_search_real_api_response_deserialization() {
 
     assert_eq!(resp.total_count, 4365);
     assert_eq!(resp.items.len(), 2);
-    assert_eq!(resp.items[0].resolved_full_name(), "Thinklab-SJTU/awesome-ml4co");
+    assert_eq!(
+        resp.items[0].resolved_full_name(),
+        "Thinklab-SJTU/awesome-ml4co"
+    );
     assert_eq!(resp.items[0].owner, "Thinklab-SJTU");
     assert_eq!(resp.items[0].repo, "awesome-ml4co");
     assert_eq!(resp.items[0].stars(), 2175);
-    assert_eq!(resp.items[1].resolved_full_name(), "mylinuxforwork/dotfiles");
+    assert_eq!(
+        resp.items[1].resolved_full_name(),
+        "mylinuxforwork/dotfiles"
+    );
     assert_eq!(resp.items[1].owner, "mylinuxforwork");
     assert_eq!(resp.items[1].repo, "dotfiles");
     assert_eq!(resp.items[1].stars(), 5086);
+}
+
+#[tokio::test]
+async fn test_aggregate_topics_multi_topic_search_deduplication_and_sorting() {
+    let mock_server = MockServer::start().await;
+
+    // 1. topic:hyprland feed
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "topic:hyprland"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({
+                    "total_count": 2,
+                    "incomplete_results": false,
+                    "items": [
+                        {
+                            "id": 101,
+                            "owner": "prasanthrangan",
+                            "repo": "hyprdots",
+                            "full_name": "prasanthrangan/hyprdots",
+                            "html_url": "https://github.com/prasanthrangan/hyprdots",
+                            "description": "Hyprland Arch dotfiles setup",
+                            "stargazers_count": 5000,
+                            "default_branch": "main",
+                            "topics": ["hyprland", "arch"]
+                        },
+                        {
+                            "id": 102,
+                            "owner": "end-4",
+                            "repo": "dots-hyprland",
+                            "full_name": "end-4/dots-hyprland",
+                            "html_url": "https://github.com/end-4/dots-hyprland",
+                            "description": "Material You themed Hyprland setup",
+                            "stargazers_count": 4000,
+                            "default_branch": "main",
+                            "topics": ["hyprland", "material-you"]
+                        }
+                    ]
+                }))
+                .append_header("x-ratelimit-resource", "search")
+                .append_header("x-ratelimit-remaining", "9"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // 2. topic:waybar feed (contains duplicate end-4/dots-hyprland with new waybar topic and updated stars)
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "topic:waybar"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({
+                    "total_count": 2,
+                    "incomplete_results": false,
+                    "items": [
+                        {
+                            "id": 102,
+                            "owner": "end-4",
+                            "repo": "dots-hyprland",
+                            "full_name": "end-4/dots-hyprland",
+                            "html_url": "https://github.com/end-4/dots-hyprland",
+                            "description": "Material You themed Hyprland setup",
+                            "stargazers_count": 4200,
+                            "default_branch": "main",
+                            "topics": ["waybar", "hyprland", "css"]
+                        },
+                        {
+                            "id": 103,
+                            "owner": "Alexays",
+                            "repo": "Waybar",
+                            "full_name": "Alexays/Waybar",
+                            "html_url": "https://github.com/Alexays/Waybar",
+                            "description": "Highly customizable Wayland bar",
+                            "stargazers_count": 6500,
+                            "default_branch": "master",
+                            "topics": ["waybar", "status-bar"]
+                        }
+                    ]
+                }))
+                .append_header("x-ratelimit-resource", "search")
+                .append_header("x-ratelimit-remaining", "8"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // 3. quickshell feed
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "quickshell"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({
+                    "total_count": 1,
+                    "incomplete_results": false,
+                    "items": [
+                        {
+                            "id": 104,
+                            "owner": "outfoxxed",
+                            "repo": "quickshell",
+                            "full_name": "outfoxxed/quickshell",
+                            "html_url": "https://github.com/outfoxxed/quickshell",
+                            "description": "Flexible QtQuick shell",
+                            "stargazers_count": 1200,
+                            "default_branch": "master",
+                            "topics": ["quickshell", "wayland"]
+                        }
+                    ]
+                }))
+                .append_header("x-ratelimit-resource", "search")
+                .append_header("x-ratelimit-remaining", "7"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::builder()
+        .base_url(mock_server.uri())
+        .build()
+        .expect("Client build failed");
+
+    let repos = client
+        .aggregate_topics(&["topic:hyprland", "topic:waybar", "quickshell"])
+        .await
+        .expect("Aggregate topics must succeed");
+
+    // Must be deduplicated: exactly 4 items, not 5
+    assert_eq!(repos.len(), 4);
+
+    // Order must be sorted descending by stars:
+    // 1. Alexays/Waybar (6500)
+    // 2. prasanthrangan/hyprdots (5000)
+    // 3. end-4/dots-hyprland (4200)
+    // 4. outfoxxed/quickshell (1200)
+    assert_eq!(repos[0].resolved_full_name(), "Alexays/Waybar");
+    assert_eq!(repos[0].stars(), 6500);
+
+    assert_eq!(repos[1].resolved_full_name(), "prasanthrangan/hyprdots");
+    assert_eq!(repos[1].stars(), 5000);
+
+    assert_eq!(repos[2].resolved_full_name(), "end-4/dots-hyprland");
+    assert_eq!(repos[2].stars(), 4200);
+
+    assert_eq!(repos[3].resolved_full_name(), "outfoxxed/quickshell");
+    assert_eq!(repos[3].stars(), 1200);
+
+    // Check topic union for end-4/dots-hyprland: must contain tags from both feeds
+    let end4 = &repos[2];
+    assert!(end4.topics.iter().any(|t| t == "hyprland"));
+    assert!(end4.topics.iter().any(|t| t == "material-you"));
+    assert!(end4.topics.iter().any(|t| t == "waybar"));
+    assert!(end4.topics.iter().any(|t| t == "css"));
+}
+
+#[tokio::test]
+async fn test_aggregate_topics_partial_failure_resilience() {
+    let mock_server = MockServer::start().await;
+
+    // Successful query for topic:hyprland
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "topic:hyprland"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({
+                    "total_count": 1,
+                    "incomplete_results": false,
+                    "items": [
+                        {
+                            "id": 101,
+                            "owner": "prasanthrangan",
+                            "repo": "hyprdots",
+                            "full_name": "prasanthrangan/hyprdots",
+                            "html_url": "https://github.com/prasanthrangan/hyprdots",
+                            "description": "Hyprland Arch dotfiles setup",
+                            "stargazers_count": 5000,
+                            "default_branch": "main",
+                            "topics": ["hyprland"]
+                        }
+                    ]
+                }))
+                .append_header("x-ratelimit-resource", "search")
+                .append_header("x-ratelimit-remaining", "9"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Failed query for topic:broken (500 internal server error)
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "topic:broken"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::builder()
+        .base_url(mock_server.uri())
+        .build()
+        .expect("Client build failed");
+
+    // Partial failure: 1 feed succeeded, 1 failed. Must return the successful feed!
+    let repos = client
+        .aggregate_topics(&["topic:hyprland", "topic:broken"])
+        .await
+        .expect("Aggregate topics must succeed despite partial failure");
+
+    assert_eq!(repos.len(), 1);
+    assert_eq!(repos[0].resolved_full_name(), "prasanthrangan/hyprdots");
+}
+
+#[tokio::test]
+async fn test_aggregate_topics_all_failed_returns_error() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::builder()
+        .base_url(mock_server.uri())
+        .build()
+        .expect("Client build failed");
+
+    let result = client
+        .aggregate_topics(&["topic:hyprland", "topic:waybar"])
+        .await;
+
+    assert!(result.is_err(), "All feeds failing must return an error");
+}
+
+#[tokio::test]
+async fn test_aggregate_topics_empty_slice() {
+    let client = GitHubClient::builder()
+        .build()
+        .expect("Client build failed");
+
+    let repos = client
+        .aggregate_topics(&[])
+        .await
+        .expect("Empty topics must succeed");
+
+    assert!(repos.is_empty());
 }

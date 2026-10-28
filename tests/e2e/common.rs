@@ -48,6 +48,9 @@ impl TestEnvironment {
         let data = root.join("data");
         fs::create_dir_all(&home).expect("failed to create temp home");
         fs::create_dir_all(&data).expect("failed to create temp data");
+        fs::create_dir_all(home.join(".config")).expect("failed to create temp .config");
+        fs::create_dir_all(home.join(".cache")).expect("failed to create temp .cache");
+        fs::create_dir_all(home.join(".local/state")).expect("failed to create temp .local/state");
         Self {
             guard: TempDirGuard(root),
             home,
@@ -56,11 +59,29 @@ impl TestEnvironment {
     }
 
     pub fn workspace_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        if manifest_dir.join("Cargo.toml").is_file() {
+            if let Ok(content) = fs::read_to_string(manifest_dir.join("Cargo.toml")) {
+                if content.contains("[workspace]") {
+                    return manifest_dir.to_path_buf();
+                }
+            }
+        }
+        let mut curr = manifest_dir;
+        while let Some(parent) = curr.parent() {
+            if parent.join("Cargo.toml").is_file() {
+                if let Ok(content) = fs::read_to_string(parent.join("Cargo.toml")) {
+                    if content.contains("[workspace]") {
+                        return parent.to_path_buf();
+                    }
+                }
+            }
+            curr = parent;
+        }
+        manifest_dir
             .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
+            .and_then(|p| p.parent())
+            .unwrap_or(manifest_dir)
             .to_path_buf()
     }
 
@@ -70,6 +91,10 @@ impl TestEnvironment {
         let reg_dir = ws.join("registry/packages");
         Command::new(bin_path)
             .current_dir(&ws)
+            .env("XDG_CONFIG_HOME", self.home.join(".config"))
+            .env("XDG_DATA_HOME", &self.data)
+            .env("XDG_CACHE_HOME", self.home.join(".cache"))
+            .env("XDG_STATE_HOME", self.home.join(".local/state"))
             .env("HOME", &self.home)
             .env("WODERRISE_DATA_DIR", &self.data)
             .env("WODERRISE_REGISTRY_DIR", &reg_dir)
@@ -78,6 +103,41 @@ impl TestEnvironment {
             .args(args)
             .output()
             .expect("failed to execute woderrise binary")
+    }
+
+    pub fn run_auth(&self, args: &[&str]) -> std::process::Output {
+        let bin_path = env!("CARGO_BIN_EXE_woderrise");
+        let ws = Self::workspace_root();
+        Command::new(bin_path)
+            .current_dir(&ws)
+            .env("XDG_CONFIG_HOME", self.home.join(".config"))
+            .env("XDG_DATA_HOME", &self.data)
+            .env("XDG_CACHE_HOME", self.home.join(".cache"))
+            .env("XDG_STATE_HOME", self.home.join(".local/state"))
+            .env("HOME", &self.home)
+            .arg("auth")
+            .args(args)
+            .output()
+            .expect("failed to execute woderrise auth binary")
+    }
+
+    pub fn run_cli(&self, args: &[&str]) -> std::process::Output {
+        let bin_path = env!("CARGO_BIN_EXE_woderrise");
+        let ws = Self::workspace_root();
+        Command::new(bin_path)
+            .current_dir(&ws)
+            .env("XDG_CONFIG_HOME", self.home.join(".config"))
+            .env("XDG_DATA_HOME", &self.data)
+            .env("XDG_CACHE_HOME", self.home.join(".cache"))
+            .env("XDG_STATE_HOME", self.home.join(".local/state"))
+            .env("HOME", &self.home)
+            .args(args)
+            .output()
+            .expect("failed to execute woderrise binary")
+    }
+
+    pub fn settings_file(&self) -> PathBuf {
+        self.home.join(".config/woderrise/settings.json")
     }
 
     pub fn target_file(&self) -> PathBuf {

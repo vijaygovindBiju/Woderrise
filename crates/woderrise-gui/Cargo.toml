@@ -43,3 +43,13 @@ tracing-subscriber.workspace = true
 
 # Diff Calculation Engine
 similar.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+wiremock.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[[test]]
+name = "e2e_tests"
+path = "../../tests/e2e_tests.rs"

@@ -7,7 +7,7 @@ use iced::widget::{
     button, column, container, responsive, row, scrollable, text, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length};
-use woderrise_core::models::{CatalogRepository, ConfigComponent};
+use woderrise_core::models::{Catalog, CatalogRepository, ConfigComponent, DetectedComponent};
 
 pub use crate::widgets::gauge::{RateLimitColorTier, RateLimitGaugeState};
 
@@ -209,28 +209,25 @@ impl SearchState {
     }
 
     pub fn apply_filter(&mut self) {
-        let q = self.query.to_lowercase().trim().to_string();
-        self.filtered_repositories = self
+        let q = self.query.trim();
+        let candidate_repos: Vec<CatalogRepository> = self
             .catalog_repositories
             .iter()
-            .filter(|repo| {
-                if !self.active_filter.matches(repo) {
-                    return false;
-                }
-                if q.is_empty() {
-                    return true;
-                }
-                repo.resolved_full_name().to_lowercase().contains(&q)
-                    || repo
-                        .description
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&q)
-                    || repo.topics.iter().any(|t| t.to_lowercase().contains(&q))
-            })
+            .filter(|repo| self.active_filter.matches(repo))
             .cloned()
             .collect();
+
+        if q.is_empty() {
+            self.filtered_repositories = candidate_repos;
+            return;
+        }
+
+        let temp_catalog = Catalog {
+            repositories: candidate_repos,
+            ..Default::default()
+        };
+
+        self.filtered_repositories = woderrise_github::filter_local_catalog(&temp_catalog, q);
     }
 
     pub fn should_fire_debounce(&self, current_time_ms: u64, debounce_window_ms: u64) -> bool {
@@ -240,6 +237,24 @@ impl SearchState {
 
     pub fn clear_debounce(&mut self) {
         self.debounce_pending = false;
+    }
+
+    /// Update detected components for a repository by full name or owner/repo format,
+    /// triggering an instant update to filtered repositories.
+    pub fn update_repo_components(&mut self, repo_name: &str, components: Vec<DetectedComponent>) {
+        let repo_lower = repo_name.to_lowercase();
+        let mut updated = false;
+        for r in &mut self.catalog_repositories {
+            if r.resolved_full_name().to_lowercase() == repo_lower
+                || format!("{}/{}", r.owner, r.repo).to_lowercase() == repo_lower
+            {
+                r.detected_components = components.clone();
+                updated = true;
+            }
+        }
+        if updated {
+            self.apply_filter();
+        }
     }
 }
 

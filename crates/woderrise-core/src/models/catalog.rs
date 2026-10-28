@@ -340,9 +340,7 @@ pub fn default_popular_repositories() -> Vec<CatalogRepository> {
             repo: "hyprdots".to_string(),
             full_name: "prasanthrangan/hyprdots".to_string(),
             html_url: "https://github.com/prasanthrangan/hyprdots".to_string(),
-            description: Some(
-                "Custom Hyprland desktop configuration and themes suite".to_string(),
-            ),
+            description: Some("Custom Hyprland desktop configuration and themes suite".to_string()),
             stargazers_count: 8475,
             default_branch: "main".to_string(),
             topics: vec![

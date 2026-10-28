@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use reqwest::header::HeaderMap;
+use serde::Deserialize;
 use std::sync::RwLock;
 use tracing::{debug, warn};
 use woderrise_core::error::{Result, WoderriseError};
@@ -196,6 +197,63 @@ impl RateLimitTracker {
             );
         }
     }
+
+    /// Dynamically update authentication status and elevate or revert rate limits proportionally.
+    pub fn set_authenticated(&self, authenticated: bool) {
+        if let Ok(mut core) = self.core.write() {
+            let target_limit = if authenticated { 5000 } else { 60 };
+            let diff = target_limit as i64 - core.limit as i64;
+            core.limit = target_limit;
+            core.remaining = (core.remaining as i64 + diff).clamp(0, target_limit as i64) as u32;
+        }
+        if let Ok(mut search) = self.search.write() {
+            let target_limit = if authenticated { 30 } else { 10 };
+            let diff = target_limit as i64 - search.limit as i64;
+            search.limit = target_limit;
+            search.remaining =
+                (search.remaining as i64 + diff).clamp(0, target_limit as i64) as u32;
+        }
+    }
+
+    /// Update rate limits directly from GitHub's GET /rate_limit response JSON.
+    pub fn update_from_response(&self, resp: &GitHubRateLimitResponse) {
+        if let Ok(mut core) = self.core.write() {
+            core.limit = resp.resources.core.limit;
+            core.remaining = resp.resources.core.remaining;
+            core.used = resp.resources.core.used;
+            if let Some(t) = Utc.timestamp_opt(resp.resources.core.reset, 0).single() {
+                core.reset_time = t;
+            }
+        }
+        if let Ok(mut search) = self.search.write() {
+            search.limit = resp.resources.search.limit;
+            search.remaining = resp.resources.search.remaining;
+            search.used = resp.resources.search.used;
+            if let Some(t) = Utc.timestamp_opt(resp.resources.search.reset, 0).single() {
+                search.reset_time = t;
+            }
+        }
+    }
+}
+
+/// GitHub API GET /rate_limit response payload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GitHubRateLimitResponse {
+    pub resources: GitHubRateLimitResources,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GitHubRateLimitResources {
+    pub core: GitHubRateLimitItem,
+    pub search: GitHubRateLimitItem,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GitHubRateLimitItem {
+    pub limit: u32,
+    pub remaining: u32,
+    pub reset: i64,
+    pub used: u32,
 }
 
 impl Default for RateLimitTracker {

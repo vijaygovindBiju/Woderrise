@@ -19,7 +19,11 @@ pub use client::{
     DEFAULT_GITHUB_API_BASE_URL,
 };
 pub use rate_limit::{RateLimitResource, RateLimitStatus, RateLimitTracker};
-pub use search::{build_enriched_search_query, filter_local_catalog, SearchRepositoriesResponse};
+pub use search::{
+    aggregate_topics, build_enriched_search_query, deduplicate_and_sort_repositories,
+    fetch_static_catalog, filter_local_catalog, score_repository, SearchRepositoriesResponse,
+    DEFAULT_CATALOG_FEED_URL, DEFAULT_CURATION_TOPICS,
+};
 pub use tree::{
     GitTree, GitTreeEntry, MAX_TREE_ENTRIES, MODE_DIRECTORY, MODE_EXECUTABLE, MODE_REGULAR_FILE,
     MODE_SYMLINK,

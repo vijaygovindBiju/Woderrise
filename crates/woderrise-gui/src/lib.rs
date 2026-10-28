@@ -4,6 +4,7 @@
 //! previewing, installing, and rolling back Wayland desktop configurations.
 
 pub mod app;
+pub mod cli;
 pub mod screens;
 pub mod theme;
 pub mod widgets;
@@ -13,14 +14,12 @@ pub use screens::{
     CategoryFilter, HistoryState, InspectState, InstallPhase, InstallState, SearchState,
 };
 pub use theme::{fetch_portal_theme, map_color_scheme_to_theme, map_raw_scheme_value};
-pub use widgets::{FileDiffReport, RateLimitColorTier, RateLimitGaugeState};
+pub use widgets::{view_card, FileDiffReport, RateLimitColorTier, RateLimitGaugeState};
 
 use tracing::{debug, error, info, warn};
 use woderrise_core::models::{Catalog, StagedFile};
 use woderrise_core::paths::XdgPaths;
-use woderrise_core::schema::{
-    read_json_file, write_json_file_durably, CATALOG_SCHEMA_V1, CURRENT_CATALOG_VERSION,
-};
+use woderrise_core::schema::{read_json_file, write_json_file_durably};
 use woderrise_detect::{DetectionEngine, TreeEntry};
 use woderrise_github::{GitHubClient, GitHubClientBuilder};
 use woderrise_transaction::TransactionEngine;
@@ -30,17 +29,195 @@ pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Deterministic 4-tier catalog fallback:
+/// - Tier 1 (Remote Static Feed): HTTP GET WODERRISE_CATALOG_URL (or default raw GitHub CDN URL) with a 4-second timeout.
+///   On success, parse Catalog and durably write to local XDG cache. Consumes 0 REST/Search API quota.
+/// - Tier 2 (Local XDG Cache): If CDN fails or offline, read $XDG_DATA_HOME/woderrise/catalog.json.
+/// - Tier 3 (Bundled Static Catalog): If cache missing/empty, fall back to bundled catalog
+///   (embedded via include_str!("../../../registry/catalog.v1.json") or Catalog::default_popular()).
+/// - Tier 4 (Live Search API): Reserved strictly for explicit user query submissions where local results are insufficient.
+pub async fn resolve_catalog_4tier(
+    custom_url: Option<&str>,
+    catalog_cache_path: Option<&camino::Utf8Path>,
+) -> Catalog {
+    let mut resolved_catalog: Option<Catalog> = None;
+
+    // Stage 1: Attempt to load from static CDN feed (0 REST/Search API quota)
+    let cdn_url = custom_url
+        .map(String::from)
+        .or_else(|| std::env::var("WODERRISE_CATALOG_URL").ok())
+        .unwrap_or_else(|| woderrise_github::DEFAULT_CATALOG_FEED_URL.to_string());
+
+    if let Ok(resp) = reqwest::Client::new()
+        .get(&cdn_url)
+        .timeout(std::time::Duration::from_secs(4))
+        .send()
+        .await
+    {
+        if resp.status().is_success() {
+            if let Ok(cat) = resp.json::<Catalog>().await {
+                if !cat.repositories.is_empty() {
+                    debug!(
+                        "Tier 1: Successfully loaded static catalog from CDN ({} repositories)",
+                        cat.repositories.len()
+                    );
+                    if let Some(path) = catalog_cache_path {
+                        if let Err(e) = write_json_file_durably(path, &cat) {
+                            warn!("Failed to persist refreshed catalog to XDG cache: {}", e);
+                        }
+                    }
+                    resolved_catalog = Some(cat);
+                }
+            }
+        }
+    }
+
+    // Stage 2: Fallback to local cached file if CDN unavailable / offline
+    if resolved_catalog.is_none() {
+        if let Some(path) = catalog_cache_path {
+            if path.exists() {
+                if let Ok(cat) = read_json_file::<Catalog>(path) {
+                    if !cat.repositories.is_empty() {
+                        debug!(
+                            "Tier 2: Fallback to local XDG cache at {} ({} repositories)",
+                            path,
+                            cat.repositories.len()
+                        );
+                        resolved_catalog = Some(cat);
+                    }
+                }
+            }
+        }
+    }
+
+    // Stage 3: Fallback to bundled pre-seeded catalog (ensures 100% offline day-1 operation)
+    resolved_catalog.unwrap_or_else(|| {
+        debug!("Tier 3: Fallback to bundled static catalog");
+        const BUNDLED_JSON: &str = include_str!("../../../registry/catalog.v1.json");
+        serde_json::from_str::<Catalog>(BUNDLED_JSON).unwrap_or_else(|e| {
+            warn!(
+                "Failed to parse bundled catalog JSON ({}): falling back to default popular",
+                e
+            );
+            Catalog::default_popular()
+        })
+    })
+}
+
+/// Asynchronously pre-inspects top repositories in background without blocking the UI.
+/// Checks rate limit quota safety (remaining >= 5 or authenticated) and cancellation tokens.
+pub fn spawn_tree_pre_inspection(
+    repos: Vec<woderrise_core::models::CatalogRepository>,
+    github_client: GitHubClient,
+    detection_engine: std::sync::Arc<DetectionEngine>,
+    event_tx: tokio::sync::mpsc::Sender<EngineEvent>,
+    cancel_token: tokio_util::sync::CancellationToken,
+) {
+    tokio::spawn(async move {
+        let is_auth = github_client.config().auth_token.is_some();
+        let core_rem = github_client.rate_limiter().core_status().remaining;
+        if !is_auth && core_rem < 5 {
+            debug!(
+                core_rem,
+                "Core rate limit quota low; skipping background tree pre-inspection"
+            );
+            return;
+        }
+
+        let max_candidates = if is_auth || core_rem >= 20 { 10 } else { 5 };
+
+        let candidates: Vec<_> = repos
+            .into_iter()
+            .filter(|r| r.detected_components.is_empty())
+            .take(max_candidates)
+            .collect();
+
+        for repo in candidates {
+            if cancel_token.is_cancelled() {
+                debug!("Background tree pre-inspection cancelled");
+                break;
+            }
+
+            if !github_client.config().auth_token.is_some()
+                && github_client.rate_limiter().core_status().remaining < 5
+            {
+                debug!("Core rate limit quota low during pre-inspection; aborting remaining");
+                break;
+            }
+
+            let full_name = repo.resolved_full_name();
+            let (owner, name) = match full_name.split_once('/') {
+                Some((o, n)) => (o.to_string(), n.to_string()),
+                None => {
+                    if !repo.owner.is_empty() && !repo.repo.is_empty() {
+                        (repo.owner.clone(), repo.repo.clone())
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            let branch = if repo.default_branch.is_empty() {
+                "main".to_string()
+            } else {
+                repo.default_branch.clone()
+            };
+
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    debug!("Background tree pre-inspection cancelled during tree fetch");
+                    break;
+                }
+                res = github_client.get_tree(&owner, &name, &branch) => {
+                    match res {
+                        Ok(tree) => {
+                            let entries: Vec<TreeEntry> = tree
+                                .tree
+                                .into_iter()
+                                .map(|e| TreeEntry::new(e.path, e.mode, e.entry_type, e.sha, e.size))
+                                .collect();
+
+                            let components = detection_engine.scan_catalog_components(&entries);
+                            if !components.is_empty() {
+                                let _ = event_tx
+                                    .send(EngineEvent::RepoPreInspected {
+                                        repo: full_name,
+                                        components,
+                                    })
+                                    .await;
+                            }
+                        }
+                        Err(e) => {
+                            debug!(
+                                repo = %full_name,
+                                error = %e,
+                                "Background tree pre-inspection skipped or failed"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 /// Asynchronous background worker processing GUI commands and emitting engine events.
 pub async fn run_worker(
     mut cmd_rx: tokio::sync::mpsc::Receiver<GuiCommand>,
     event_tx: tokio::sync::mpsc::Sender<EngineEvent>,
-    github_client: GitHubClient,
+    mut github_client: GitHubClient,
     detection_engine: DetectionEngine,
     tx_engine: TransactionEngine,
 ) {
+    let detection_engine = std::sync::Arc::new(detection_engine);
+    let mut preinspect_cancel_token: Option<tokio_util::sync::CancellationToken> = None;
+
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             GuiCommand::Search { query, token } => {
+                if let Some(old_cancel) = preinspect_cancel_token.take() {
+                    old_cancel.cancel();
+                }
+
                 let _ = event_tx
                     .send(EngineEvent::SearchStarted {
                         query: query.clone(),
@@ -57,9 +234,20 @@ pub async fn run_worker(
                                 let search_quota = github_client.rate_limiter().search_status();
                                 let _ = event_tx.send(EngineEvent::SearchCompleted {
                                     query,
-                                    results: resp.items,
+                                    results: resp.items.clone(),
                                     search_quota,
                                 }).await;
+
+                                let preinspect_token = token.child_token();
+                                preinspect_cancel_token = Some(preinspect_token.clone());
+
+                                spawn_tree_pre_inspection(
+                                    resp.items,
+                                    github_client.clone(),
+                                    detection_engine.clone(),
+                                    event_tx.clone(),
+                                    preinspect_token,
+                                );
                             }
                             Err(e) => {
                                 let _ = event_tx.send(EngineEvent::SearchError {
@@ -73,69 +261,33 @@ pub async fn run_worker(
             }
 
             GuiCommand::RefreshCatalog => {
-                let search_quota = github_client.rate_limiter().search_status();
+                if let Some(old_cancel) = preinspect_cancel_token.take() {
+                    old_cancel.cancel();
+                }
+
                 let catalog_path_res = XdgPaths::from_env().map(|paths| paths.catalog_file());
+                let final_catalog =
+                    resolve_catalog_4tier(None, catalog_path_res.as_deref().ok()).await;
 
-                // Try fetching latest popular Hyprland dotfiles from GitHub first
-                let mut remote_repos = Vec::new();
-                if github_client.rate_limiter().check_search_quota().is_ok() {
-                    if let Ok(resp) =
-                        github_client.search_repositories("hyprland dotfiles").await
-                    {
-                        if !resp.items.is_empty() {
-                            remote_repos = resp.items;
-                        }
-                    }
-                }
+                let search_quota = github_client.rate_limiter().search_status();
+                let _ = event_tx
+                    .send(EngineEvent::SearchCompleted {
+                        query: String::new(),
+                        results: final_catalog.repositories.clone(),
+                        search_quota,
+                    })
+                    .await;
 
-                if !remote_repos.is_empty() {
-                    let new_catalog = Catalog {
-                        schema: Some(CATALOG_SCHEMA_V1.to_string()),
-                        version: CURRENT_CATALOG_VERSION,
-                        last_synced: chrono::Utc::now(),
-                        repositories: remote_repos.clone(),
-                    };
+                let preinspect_token = tokio_util::sync::CancellationToken::new();
+                preinspect_cancel_token = Some(preinspect_token.clone());
 
-                    if let Ok(ref catalog_path) = catalog_path_res {
-                        if let Err(e) = write_json_file_durably(catalog_path, &new_catalog) {
-                            warn!("Failed to persist refreshed catalog: {}", e);
-                        }
-                    }
-
-                    let updated_quota = github_client.rate_limiter().search_status();
-                    let _ = event_tx
-                        .send(EngineEvent::SearchCompleted {
-                            query: String::new(),
-                            results: remote_repos,
-                            search_quota: updated_quota,
-                        })
-                        .await;
-                } else {
-                    // Fallback to local catalog file if present
-                    let mut local_repos = Vec::new();
-                    if let Ok(ref catalog_path) = catalog_path_res {
-                        if catalog_path.exists() {
-                            if let Ok(cat) = read_json_file::<Catalog>(catalog_path) {
-                                if !cat.repositories.is_empty() {
-                                    local_repos = cat.repositories;
-                                }
-                            }
-                        }
-                    }
-
-                    // Fallback to pre-seeded catalog if local file is missing/empty
-                    if local_repos.is_empty() {
-                        local_repos = Catalog::default_popular().repositories;
-                    }
-
-                    let _ = event_tx
-                        .send(EngineEvent::SearchCompleted {
-                            query: String::new(),
-                            results: local_repos,
-                            search_quota,
-                        })
-                        .await;
-                }
+                spawn_tree_pre_inspection(
+                    final_catalog.repositories,
+                    github_client.clone(),
+                    detection_engine.clone(),
+                    event_tx.clone(),
+                    preinspect_token,
+                );
             }
 
             GuiCommand::InspectPackage {
@@ -485,15 +637,70 @@ pub async fn run_worker(
             }
 
             GuiCommand::FetchRateLimits => {
-                let core = github_client.rate_limiter().core_status();
-                let search = github_client.rate_limiter().search_status();
+                let (core, search) = match github_client.get_rate_limit().await {
+                    Ok(limits) => limits,
+                    Err(_) => (
+                        github_client.rate_limiter().core_status(),
+                        github_client.rate_limiter().search_status(),
+                    ),
+                };
                 let _ = event_tx
                     .send(EngineEvent::RateLimitsUpdated { core, search })
                     .await;
             }
 
-            GuiCommand::SetGitHubToken { token: _ } => {
-                // Token update handled on client builder
+            GuiCommand::SetGitHubToken { token } => {
+                let settings_path = tx_engine.xdg.settings_file();
+                let previous_settings =
+                    woderrise_core::models::load_settings(&settings_path).unwrap_or_default();
+                let previous_token = previous_settings.github_token.clone();
+
+                if let Some(ref new_token) = token {
+                    github_client.set_auth_token(Some(new_token.clone()));
+                    match github_client.get_rate_limit().await {
+                        Ok((core, search)) => {
+                            let mut settings = previous_settings;
+                            settings.github_token = Some(new_token.clone());
+                            if let Err(e) = woderrise_core::models::save_settings_durably(
+                                &settings_path,
+                                &settings,
+                            ) {
+                                warn!("Failed to persist settings.json: {:?}", e);
+                            }
+                            let _ = event_tx
+                                .send(EngineEvent::RateLimitsUpdated { core, search })
+                                .await;
+                        }
+                        Err(e) => {
+                            warn!("GitHub PAT verification failed: {:?}", e);
+                            github_client.set_auth_token(previous_token);
+                            let _ = event_tx
+                                .send(EngineEvent::TokenVerificationFailed {
+                                    error: e.to_string(),
+                                })
+                                .await;
+                        }
+                    }
+                } else {
+                    github_client.set_auth_token(None);
+                    let mut settings = previous_settings;
+                    settings.github_token = None;
+                    if let Err(e) =
+                        woderrise_core::models::save_settings_durably(&settings_path, &settings)
+                    {
+                        warn!("Failed to persist settings.json: {:?}", e);
+                    }
+                    let (core, search) = match github_client.get_rate_limit().await {
+                        Ok(limits) => limits,
+                        Err(_) => (
+                            github_client.rate_limiter().core_status(),
+                            github_client.rate_limiter().search_status(),
+                        ),
+                    };
+                    let _ = event_tx
+                        .send(EngineEvent::RateLimitsUpdated { core, search })
+                        .await;
+                }
             }
         }
     }
@@ -526,7 +733,16 @@ pub fn run() -> iced::Result {
     let tx_engine =
         TransactionEngine::new(xdg.clone()).expect("Failed to initialize TransactionEngine");
     let detection_engine = DetectionEngine::new();
-    let github_client = GitHubClientBuilder::new()
+
+    let mut client_builder = GitHubClientBuilder::new();
+    let settings_file = xdg.settings_file();
+    if let Ok(settings) = woderrise_core::models::load_settings(&settings_file) {
+        if let Some(token) = settings.github_token {
+            info!("Configuring GitHubClient with saved Personal Access Token.");
+            client_builder = client_builder.auth_token(Some(token));
+        }
+    }
+    let github_client = client_builder
         .build()
         .expect("Failed to initialize GitHubClient");
 

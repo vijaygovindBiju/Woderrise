@@ -56,6 +56,11 @@ impl DetectionEngine {
         results
     }
 
+    /// Convenience alias for `scan_catalog_components` to detect all components in a tree.
+    pub fn detect_components(&self, tree: &[TreeEntry]) -> Vec<DetectedComponent> {
+        self.scan_catalog_components(tree)
+    }
+
     /// Detailed detection returning all matched file entries and hardware notices.
     pub fn detect_all(&self, tree: &[TreeEntry]) -> Vec<ComponentDetection> {
         self.detectors

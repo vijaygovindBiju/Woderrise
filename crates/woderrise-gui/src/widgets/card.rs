@@ -32,11 +32,29 @@ pub fn view_card<'a, Message: Clone + 'a>(
         .size(12)
         .color(Color::from_rgb(0.7, 0.72, 0.8));
 
-    // Component badges
+    // Component badges and file counts
     let mut badge_row = row![].spacing(6);
+    let total_files: usize = repo.detected_components.iter().map(|c| c.file_count).sum();
+
     for comp in &repo.detected_components {
+        let label = if comp.file_count > 0 {
+            let plural = if comp.file_count == 1 {
+                "file"
+            } else {
+                "files"
+            };
+            format!(
+                "{} ({} {})",
+                comp.component.display_name(),
+                comp.file_count,
+                plural
+            )
+        } else {
+            comp.component.display_name().to_string()
+        };
+
         let badge = container(
-            text(format!("{:?}", comp.component))
+            text(label)
                 .size(10)
                 .color(Color::from_rgb(0.55, 0.75, 0.98)),
         )
@@ -53,19 +71,28 @@ pub fn view_card<'a, Message: Clone + 'a>(
 
         badge_row = badge_row.push(badge);
     }
-    let badge_row = badge_row.wrap();
 
     let inspect_btn = button(text("Inspect").size(12))
         .padding([4, 12])
         .on_press(on_inspect);
 
-    let card_content = column![
-        header,
-        description,
-        badge_row,
-        row![inspect_btn].align_y(iced::Alignment::Center)
-    ]
-    .spacing(10);
+    let mut footer = row![inspect_btn]
+        .spacing(10)
+        .align_y(iced::Alignment::Center);
+    if total_files > 0 {
+        let plural = if total_files == 1 { "file" } else { "files" };
+        footer = footer.push(
+            text(format!("Total: {} {}", total_files, plural))
+                .size(11)
+                .color(Color::from_rgb(0.65, 0.70, 0.85)),
+        );
+    }
+
+    let mut card_content = column![header, description].spacing(10);
+    if !repo.detected_components.is_empty() {
+        card_content = card_content.push(badge_row.wrap());
+    }
+    card_content = card_content.push(footer);
 
     container(card_content)
         .padding(14)

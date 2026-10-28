@@ -203,8 +203,7 @@ pub fn view_install<'a, Message: Clone + 'a>(
     let mut content = column![header, progress].spacing(18);
 
     // Directive approvals list (if in PendingApproval phase)
-    if state.current_phase == InstallPhase::PendingApproval
-        && !state.directive_approvals.is_empty()
+    if state.current_phase == InstallPhase::PendingApproval && !state.directive_approvals.is_empty()
     {
         let mut approvals_col = column![
             text("Procedural Command Approvals:").size(14),
@@ -229,17 +228,18 @@ pub fn view_install<'a, Message: Clone + 'a>(
             approvals_col = approvals_col.push(cb);
         }
 
-        let approvals_container = container(approvals_col)
-            .padding(12)
-            .style(|_theme| container::Style {
-                background: Some(Color::from_rgba(0.18, 0.2, 0.28, 0.5).into()),
-                border: iced::Border {
-                    color: Color::from_rgba(0.4, 0.45, 0.6, 0.3),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                ..Default::default()
-            });
+        let approvals_container =
+            container(approvals_col)
+                .padding(12)
+                .style(|_theme| container::Style {
+                    background: Some(Color::from_rgba(0.18, 0.2, 0.28, 0.5).into()),
+                    border: iced::Border {
+                        color: Color::from_rgba(0.4, 0.45, 0.6, 0.3),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    ..Default::default()
+                });
 
         content = content.push(approvals_container);
     }

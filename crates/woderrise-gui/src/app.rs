@@ -7,8 +7,8 @@ use std::sync::Mutex;
 use tracing::info;
 
 use woderrise_core::models::{
-    ActiveTransaction, CatalogRepository, ConfigComponent, JournalEntry, StagedFile, TargetMapping,
-    VerificationReport,
+    ActiveTransaction, CatalogRepository, ConfigComponent, DetectedComponent, JournalEntry,
+    StagedFile, TargetMapping, VerificationReport,
 };
 use woderrise_detect::{ComponentDetection, TreeEntry};
 use woderrise_github::{GitTree, RateLimitStatus};
@@ -18,6 +18,7 @@ use crate::screens::history::{view_history, HistoryState};
 use crate::screens::inspect::{view_inspect, InspectState, InspectTab};
 use crate::screens::install::{view_install, InstallPhase, InstallState};
 use crate::screens::search::{view_search, CategoryFilter, SearchState};
+use crate::screens::settings::{view_settings, SettingsState};
 use crate::widgets::diff::FileDiffReport;
 use crate::widgets::gauge::view_gauge;
 
@@ -95,6 +96,10 @@ pub enum EngineEvent {
     SearchError {
         query: String,
         error: String,
+    },
+    RepoPreInspected {
+        repo: String,
+        components: Vec<DetectedComponent>,
     },
 
     // Inspect & Tree Resolution
@@ -176,6 +181,9 @@ pub enum EngineEvent {
         core: RateLimitStatus,
         search: RateLimitStatus,
     },
+    TokenVerificationFailed {
+        error: String,
+    },
     StartupRecoveryFinished {
         outcome: Option<RecoveryOutcome>,
     },
@@ -192,6 +200,7 @@ pub enum Screen {
     Inspect,
     Install,
     History,
+    Settings,
 }
 
 /// Messages handled by the Iced application update loop.
@@ -222,6 +231,13 @@ pub enum Message {
     RequestRollbackLatest { force_dirty: bool },
     RequestRollbackTx { tx_id: String, force_dirty: bool },
     CloseDirtyModal,
+
+    // Settings screen interactions
+    SettingsTokenChanged(String),
+    SettingsToggleMask,
+    SettingsSaveToken,
+    SettingsClearToken,
+    SettingsTestConnection,
 
     // Theming & Alerts
     ToggleDarkMode(bool),
@@ -264,12 +280,15 @@ pub struct App {
     pub inspect_state: Option<InspectState>,
     pub install_state: Option<InstallState>,
     pub history_state: HistoryState,
+    pub settings_state: SettingsState,
     pub active_theme: Theme,
     pub error_banner: Option<String>,
     pub startup_notice: Option<String>,
     pub cmd_tx: tokio::sync::mpsc::Sender<GuiCommand>,
     pub search_cancel_token: Option<tokio_util::sync::CancellationToken>,
     pub inspect_cancel_token: Option<tokio_util::sync::CancellationToken>,
+    pub is_testing_connection: bool,
+    pub pending_token_save: Option<Option<String>>,
 }
 
 impl App {
@@ -289,18 +308,26 @@ impl App {
         let _ = cmd_tx.try_send(GuiCommand::FetchRateLimits);
         let _ = cmd_tx.try_send(GuiCommand::RefreshCatalog);
 
+        let current_token = woderrise_core::paths::XdgPaths::from_env()
+            .ok()
+            .and_then(|paths| woderrise_core::models::load_settings(&paths.settings_file()).ok())
+            .and_then(|s| s.github_token);
+
         Self {
             active_screen: Screen::Search,
             search_state: SearchState::new(Vec::new()),
             inspect_state: None,
             install_state: None,
             history_state: HistoryState::from_journal_entries(&[]),
+            settings_state: SettingsState::new(current_token),
             active_theme: Theme::Dark,
             error_banner: None,
             startup_notice,
             cmd_tx,
             search_cancel_token: None,
             inspect_cancel_token: None,
+            is_testing_connection: false,
+            pending_token_save: None,
         }
     }
 
@@ -322,6 +349,8 @@ impl App {
                 self.active_screen = screen;
                 if screen == Screen::History {
                     let _ = self.cmd_tx.try_send(GuiCommand::LoadHistory);
+                } else if screen == Screen::Settings {
+                    let _ = self.cmd_tx.try_send(GuiCommand::FetchRateLimits);
                 }
             }
 
@@ -549,6 +578,58 @@ impl App {
                 self.history_state.close_dirty_modal();
             }
 
+            Message::SettingsTokenChanged(token) => {
+                self.settings_state.set_token_input(token);
+            }
+
+            Message::SettingsToggleMask => {
+                self.settings_state.toggle_mask();
+            }
+
+            Message::SettingsSaveToken => {
+                let token = self.settings_state.token_input.trim().to_string();
+                if token.is_empty() {
+                    self.settings_state.set_notice(
+                        "Token cannot be empty. Use 'Clear Token' to remove an existing token.",
+                        true,
+                    );
+                } else {
+                    self.settings_state.is_busy = true;
+                    self.is_testing_connection = false;
+                    self.pending_token_save = Some(Some(token.clone()));
+                    self.settings_state
+                        .set_notice("Saving token and verifying with GitHub API...", false);
+                    let _ = self
+                        .cmd_tx
+                        .try_send(GuiCommand::SetGitHubToken { token: Some(token) });
+                }
+            }
+
+            Message::SettingsClearToken => {
+                self.settings_state.token_input.clear();
+                self.settings_state.is_busy = true;
+                self.is_testing_connection = false;
+                self.pending_token_save = Some(None);
+                self.settings_state.set_notice(
+                    "Clearing token and reverting to unauthenticated limits...",
+                    false,
+                );
+                let _ = self
+                    .cmd_tx
+                    .try_send(GuiCommand::SetGitHubToken { token: None });
+            }
+
+            Message::SettingsTestConnection => {
+                self.settings_state.is_busy = true;
+                self.is_testing_connection = true;
+                self.pending_token_save = None;
+                self.settings_state.set_notice(
+                    "Testing GitHub API connection and refreshing rate limit quotas...",
+                    false,
+                );
+                let _ = self.cmd_tx.try_send(GuiCommand::FetchRateLimits);
+            }
+
             Message::ToggleDarkMode(dark) => {
                 self.active_theme = if dark { Theme::Dark } else { Theme::Light };
             }
@@ -602,6 +683,10 @@ impl App {
             EngineEvent::SearchError { error, .. } => {
                 self.search_state.is_searching = false;
                 self.error_banner = Some(format!("GitHub Search Error: {}", error));
+            }
+
+            EngineEvent::RepoPreInspected { repo, components } => {
+                self.search_state.update_repo_components(&repo, components);
             }
 
             EngineEvent::InspectStarted { .. } => {
@@ -761,6 +846,43 @@ impl App {
                     search.remaining,
                     search.limit,
                 );
+                if self.is_testing_connection {
+                    self.is_testing_connection = false;
+                    self.settings_state.is_busy = false;
+                    self.settings_state.set_notice(
+                        format!(
+                            "Connection verified. Active limits — Search: {}/{} remaining, Core: {}/{} remaining.",
+                            search.remaining, search.limit, core.remaining, core.limit
+                        ),
+                        false,
+                    );
+                } else if let Some(saved) = self.pending_token_save.take() {
+                    self.settings_state.set_saved(saved);
+                } else if self.settings_state.is_busy {
+                    let token = if self.settings_state.token_input.trim().is_empty() {
+                        None
+                    } else {
+                        Some(self.settings_state.token_input.trim().to_string())
+                    };
+                    self.settings_state.set_saved(token);
+                } else if self.active_screen == Screen::Settings {
+                    self.settings_state.set_notice(
+                        format!(
+                            "Rate limits active — Search: {}/{} remaining, Core: {}/{} remaining.",
+                            search.remaining, search.limit, core.remaining, core.limit
+                        ),
+                        false,
+                    );
+                }
+            }
+
+            EngineEvent::TokenVerificationFailed { error } => {
+                self.is_testing_connection = false;
+                self.pending_token_save = None;
+                self.settings_state.is_busy = false;
+                self.settings_state
+                    .set_notice(format!("Verification failed: {}", error), true);
+                self.error_banner = Some(format!("GitHub token verification failed: {}", error));
             }
 
             EngineEvent::StartupRecoveryFinished { outcome } => {
@@ -791,6 +913,9 @@ impl App {
         let nav_history = button(text("History & Rollback").size(13))
             .padding([6, 12])
             .on_press(Message::NavigateTo(Screen::History));
+        let nav_settings = button(text("⚙ Settings").size(13))
+            .padding([6, 12])
+            .on_press(Message::NavigateTo(Screen::Settings));
 
         let rate_gauge = view_gauge(&self.search_state.rate_limits);
 
@@ -802,7 +927,7 @@ impl App {
         let header = container(
             row![
                 brand,
-                row![nav_search, nav_history].spacing(8),
+                row![nav_search, nav_history, nav_settings].spacing(8),
                 row![rate_gauge, theme_toggle_btn]
                     .spacing(12)
                     .align_y(Alignment::Center),
@@ -941,6 +1066,15 @@ impl App {
                     force_dirty: force,
                 },
                 Message::CloseDirtyModal,
+            ),
+            Screen::Settings => view_settings(
+                &self.settings_state,
+                &self.search_state.rate_limits,
+                Message::SettingsTokenChanged,
+                Message::SettingsToggleMask,
+                Message::SettingsSaveToken,
+                Message::SettingsClearToken,
+                Message::SettingsTestConnection,
             ),
         };
 

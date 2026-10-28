@@ -2,9 +2,10 @@
 
 use crate::cache::GitHubCache;
 use crate::cdn::{fetch_blob_rest, max_bytes_for_path, stream_raw_cdn};
-use crate::rate_limit::{RateLimitResource, RateLimitTracker};
+use crate::rate_limit::{RateLimitResource, RateLimitStatus, RateLimitTracker};
 use crate::search::{
-    build_enriched_search_query, filter_local_catalog, SearchRepositoriesResponse,
+    build_enriched_search_query, deduplicate_and_sort_repositories, filter_local_catalog,
+    SearchRepositoriesResponse,
 };
 use crate::tree::{GitTree, GitTreeEntry, MAX_TREE_ENTRIES};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
@@ -159,6 +160,55 @@ impl GitHubClient {
     /// Access current client configuration.
     pub fn config(&self) -> &GitHubConfig {
         &self.config
+    }
+
+    /// Dynamically update the Personal Access Token and adjust rate limits proportionally.
+    pub fn set_auth_token(&mut self, token: Option<String>) {
+        let authenticated = token.is_some();
+        self.config.auth_token = token;
+        self.rate_limiter.set_authenticated(authenticated);
+    }
+
+    /// Query GitHub's GET /rate_limit endpoint to fetch live rate limit allocations (consumes 0 API quota).
+    pub async fn get_rate_limit(&self) -> Result<(RateLimitStatus, RateLimitStatus)> {
+        let url = format!("{}/rate_limit", self.config.base_url.trim_end_matches('/'));
+        let mut req = self.http.get(&url);
+        if let Some(token) = &self.config.auth_token {
+            req = req.bearer_auth(token);
+        }
+
+        let res = req.send().await.map_err(|e| WoderriseError::GitHubApi {
+            status: 500,
+            message: format!("Rate limit request error: {}", e),
+            reset_epoch: None,
+        })?;
+
+        self.rate_limiter
+            .update_from_headers(res.headers(), RateLimitResource::Core);
+
+        let status = res.status();
+        if status.is_success() {
+            if let Ok(body) = res
+                .json::<crate::rate_limit::GitHubRateLimitResponse>()
+                .await
+            {
+                self.rate_limiter.update_from_response(&body);
+            }
+        } else if status == reqwest::StatusCode::UNAUTHORIZED
+            || status == reqwest::StatusCode::FORBIDDEN
+        {
+            let error_body = res.text().await.unwrap_or_default();
+            return Err(WoderriseError::GitHubApi {
+                status: status.as_u16(),
+                message: format!("GitHub authentication error: {}", error_body),
+                reset_epoch: None,
+            });
+        }
+
+        Ok((
+            self.rate_limiter.core_status(),
+            self.rate_limiter.search_status(),
+        ))
     }
 
     /// Fetch a recursive Git Tree (`GET /repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1`).
@@ -480,19 +530,20 @@ impl GitHubClient {
             reset_epoch: None,
         })?;
 
-        let response: SearchRepositoriesResponse = serde_json::from_str(&body_text).map_err(|e| {
-            let preview = if body_text.len() > 200 {
-                format!("{}...", &body_text[..200])
-            } else {
-                body_text.clone()
-            };
-            warn!(error = %e, preview = %preview, "Failed to parse search response JSON");
-            WoderriseError::GitHubApi {
-                status: 500,
-                message: format!("Failed to parse search response JSON: {}", e),
-                reset_epoch: None,
-            }
-        })?;
+        let response: SearchRepositoriesResponse =
+            serde_json::from_str(&body_text).map_err(|e| {
+                let preview = if body_text.len() > 200 {
+                    format!("{}...", &body_text[..200])
+                } else {
+                    body_text.clone()
+                };
+                warn!(error = %e, preview = %preview, "Failed to parse search response JSON");
+                WoderriseError::GitHubApi {
+                    status: 500,
+                    message: format!("Failed to parse search response JSON: {}", e),
+                    reset_epoch: None,
+                }
+            })?;
 
         self.cache
             .put_search(query.to_string(), response.clone())
@@ -536,5 +587,48 @@ impl GitHubClient {
         }
 
         Ok(results)
+    }
+
+    /// Aggregates repositories across multiple topics and curation feeds.
+    ///
+    /// Deduplicates results by repository full name (`owner/repo` lowercase), merges `topics`
+    /// vectors across duplicate matches, and sorts descending by `stargazers_count`
+    /// (tie-breaking on `pushed_at` descending, then repository `id`).
+    ///
+    /// Resilient to partial failures: if one topic query fails or rate-limits,
+    /// returns the results from the successful queries rather than aborting entirely.
+    pub async fn aggregate_topics(&self, topics: &[&str]) -> Result<Vec<CatalogRepository>> {
+        if topics.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut all_repos = Vec::new();
+        let mut last_err = None;
+        let mut success_count = 0;
+
+        for topic in topics {
+            match self.search_repositories(topic).await {
+                Ok(resp) => {
+                    success_count += 1;
+                    all_repos.extend(resp.items);
+                }
+                Err(e) => {
+                    warn!(
+                        topic = %topic,
+                        error = %e,
+                        "Topic query feed failed; continuing with remaining feeds"
+                    );
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        if success_count == 0 {
+            if let Some(err) = last_err {
+                return Err(err);
+            }
+        }
+
+        Ok(deduplicate_and_sort_repositories(all_repos))
     }
 }
