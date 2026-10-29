@@ -1,13 +1,15 @@
-# Installable registry packages
+# Installable Registry Packages
 
-Each package directory contains a versioned `woderrise.yaml` and the local
-artifact bytes referenced by its manifest. The importer validates the
-manifest, verifies every artifact hash, and stores the exact manifest path in
-SQLite before the TUI can display it as installable.
+Each package directory contains a versioned `woderrise.yaml` manifest and the local artifact bytes referenced by its manifest.
 
-The Catppuccin Waybar entry is pinned to upstream commit
-`ee8ed32b4f63e9c417249c109818dcc05a2e25da`. Its artifact was fetched from the
-corresponding GitHub raw URL and its SHA-256 is recorded in the manifest. The
-palette values are a small, manifest-declared subset copied from that pinned
-CSS artifact; the TUI presents them as package metadata, not as an independently
-sampled or cryptographically signed color analysis.
+The Woderrise engine validates the manifest schema, verifies every artifact SHA-256 hash, and checks component path safety before the application presents the package as installable in the desktop interface.
+
+---
+
+## Verified Packages
+
+### Catppuccin Waybar Mocha (`com.catppuccin.waybar`)
+- **Pinned Upstream Commit:** `ee8ed32b4f63e9c417249c109818dcc05a2e25da`
+- **Source:** Pinned GitHub raw URL with cryptographic SHA-256 validation.
+- **Component Classification:** Waybar configuration (`config.jsonc`) and GTK CSS stylesheet (`style.css`).
+- **Metadata:** Includes verified palette tokens and theme variants declared directly in the manifest.

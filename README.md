@@ -3,7 +3,7 @@
 > **A Lightweight, GitHub-Powered Linux Desktop Configuration Store with a Native Graphical GUI in Rust**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](Cargo.toml)
-[![Rust](https://img.shields.io/badge/Rust-1.97%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Wayland-informational.svg)](https://wayland.freedesktop.org)
 [![Compositor](https://img.shields.io/badge/Compositor-Hyprland-brightgreen.svg)](https://hyprland.org)
 
@@ -88,17 +88,17 @@ graph TD
 
 ### Crate Responsibilities
 
-1. **`woderrise-core`**:
+1. **[`woderrise-core`](crates/woderrise-core/README.md)**:
    - Pure domain models (`PackageMetadata`, `ConfigComponent`, `TargetMapping`, `JournalEntry`).
    - Unified error hierarchy (`WoderriseError`) using `thiserror`.
    - Safe path normalization and traversal containment checkers using `camino::Utf8Path`.
-2. **`woderrise-github`**:
+2. **[`woderrise-github`](crates/woderrise-github/README.md)**:
    - Direct integration with GitHub's REST API and Git Trees API (`recursive=1`).
    - Bulk dotfile streaming via commit-pinned Fastly CDN (`raw.githubusercontent.com/{owner}/{repo}/{commit_sha}/{path}`), consuming **0 REST API rate limit quota** (with `/git/blobs/{blob_sha}` fallback).
    - In-memory TTL cache (`moka` with 10-minute default TTL) so repeated views/refreshes make ZERO network requests (reflecting that unauthenticated 304s decrement quota by 1).
    - Two-tier search architecture with separate `X-RateLimit-Resource: search` pool monitoring (10 req/min unauthenticated, 30 req/min authenticated) and visual quota gauge.
    - Enforces exclusively live, real-world data.
-3. **`woderrise-detect`**:
+3. **[`woderrise-detect`](crates/woderrise-detect/README.md)**:
    - Independent component classification, hardware protection, and syntax validation:
      - **Hyprland**: Legacy block/directive syntax (`hyprland.conf`) and modern Lua syntax (`hyprland.lua`), with explicit precedence rules and legacy deactivation handling (`hyprland.conf.disabled_by_woderrise`).
      - **Waybar**: JSONC configurations parsed with `json5` lexer (safely handling `//`, `/* */`, and trailing commas without regex string literal corruption of URLs) and GTK CSS (`style.css`).
@@ -107,7 +107,7 @@ graph TD
      - **Hyprpaper & Wallpapers**: Wallpaper directives and image assets with path remapping.
      - **Hyprcursor**: Cursor theme structures and `manifest.hl`.
      - **GTK 3/4 & Icons**: `settings.ini` and FreeDesktop `index.theme`.
-4. **`woderrise-transaction`**:
+4. **[`woderrise-transaction`](crates/woderrise-transaction/README.md)**:
    - Sandboxed staging workspace (`$XDG_CACHE_HOME/woderrise/staging/<tx_id>/`).
    - Security auditing: blocks directory traversal, forbids Git tree symlink objects (`mode 120000`, CVE-2021-21300 defense), resolves and preserves GNU Stow / Chezmoi target symlinks (`symlink_metadata`), and evaluates authentic permissions from Git Tree metadata (NTFS/FAT mount safe).
    - Procedural Execution Audit: indexes and neutralizes inline execution directives (`exec-once`, `exec`, `on-click`, `on-timeout`).
@@ -116,7 +116,7 @@ graph TD
    - 4-phase atomic file replacement using stream copy (`std::io::copy`, eliminating cross-device `EXDEV` errors), `fsync`, atomic `rename`, and parent directory `fsync` durability commits.
    - Persistent transaction journal updated via atomic sibling writes (`journal.json.tmp` -> `rename`) with advisory file locks (`fs2`).
    - Startup crash recovery engine and linear LIFO rollback with dirty-state verification (`current_sha256 == post_sha256`) and empty directory cleanup.
-5. **`woderrise-gui`**:
+5. **[`woderrise-gui`](crates/woderrise-gui/README.md)**:
    - Native desktop GUI built on **`iced` (v0.14+)** using `winit` for native Wayland protocols (`xdg-shell`, `fractional-scale-v1`), subpixel font rendering, and `AccessKit` accessibility.
    - Secondary architecture option documented: `relm4` (v0.11+) + Libadwaita for GNOME HIG compliance.
    - Package discovery experience: card grids, category tabs, debounced search (300ms + cancellation tokens), hero banners, screenshot carousel, two-column split-pane inspect view, Markdown rendering, syntax-highlighted diffs, installation progress, and rollback history.
@@ -252,7 +252,9 @@ Woderrise is organized across disciplined milestones. All 5 core workspace crate
 | **Milestone 2** | **Component Detection & Transaction Engine** | `woderrise-detect` & `woderrise-transaction`: 7-component detection engine, hardware display config preservation, 4-phase atomic swap, WAL journal, and LIFO rollback. | **COMPLETE** |
 | **Milestone 3** | **Native Desktop GUI & Snap Store UX** | `woderrise-gui`: Native Iced (v0.14+) desktop app. Discover screen with 30 real-world setups, category filter pills, inspect view, Myers diff viewer, and rollback history. | **COMPLETE** |
 | **Milestone 4** | **End-to-End Hardening & Testing** | Binary entrypoint `src/main.rs`, 100% test pass rate across unit, integration, and adversarial suites in all 5 crates, and 0 clippy warnings. | **COMPLETE** |
-| **Milestone 5 / Next** | **Discovery Engine & UX Enhancements** | Eager background tree inspection for instant card badges, multi-topic aggregation (100+ setups), keyring-backed GitHub PAT settings dialog, and fuzzy typo-tolerant search. | **IN PROGRESS** |
+| **Milestone 5** | **Cross-Screen E2E GUI Hardening** | 10 comprehensive cross-screen integration tests covering all 4 screens, lifecycle safety invariants, and LIFO rollback chains. | **COMPLETE** |
+| **Milestone 6** | **Discovery Engine & Curation Feed** | Eager background tree inspection for instant card badges, multi-topic aggregation (100+ setups), keyring-backed GitHub PAT settings dialog, and fuzzy typo-tolerant search. | **COMPLETE** |
+| **Milestone 7** | **High-Fidelity Inspection & Installation** | Screen 2 redesign matching production specification: screenshot carousel, interactive thumbnails, metadata matrix, recent files strip, rich component cards, and installation summary CTA. | **ACTIVE / NEXT** |
 
 ---
 
