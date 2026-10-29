@@ -164,31 +164,31 @@ Every task in this backlog is structured to be completely actionable by an engin
 
 ## 7. Next Iteration Backlog (High-Impact Discovery & UX Enhancements)
 
-- [ ] **`TASK-NEXT-DISC-001`**: Background Tree Pre-Inspection (Eager Detection)
+- [x] **`TASK-NEXT-DISC-001`**: Background Tree Pre-Inspection (Eager Detection)
   - **Subsystem:** Discovery Engine (`woderrise-detect`, `woderrise-github`, `woderrise-gui`)
   - **Dependencies:** None
   - **What:** When GitHub returns search results, have a background worker asynchronously fetch the top 5–10 repository trees via Fastly CDN / GitHub Git Trees API.
   - **Benefit & Completion Criteria:** Component badges (Hyprland, Waybar, Hyprlock, Hypridle, Wallpapers, GTK) and file counts populate on discovery cards automatically without requiring manual "Inspect" clicks.
 
-- [ ] **`TASK-NEXT-DISC-002`**: Multi-Topic Aggregation & Curation Feed
+- [x] **`TASK-NEXT-DISC-002`**: Multi-Topic Aggregation & Curation Feed
   - **Subsystem:** Discovery Engine (`woderrise-github`, `woderrise-gui`)
   - **Dependencies:** None
   - **What:** Expand the catalog refresh logic to query multiple search terms in parallel (`topic:hyprland`, `topic:waybar`, `quickshell`, `caelestia-dots`), then deduplicate and sort by stars.
   - **Benefit & Completion Criteria:** Expands the home screen catalog from 30 to 100+ curated setups while preserving rate limit quotas.
 
-- [ ] **`TASK-NEXT-AUTH-003`**: Personal Access Token (PAT) Integration in Settings
+- [x] **`TASK-NEXT-AUTH-003`**: Personal Access Token (PAT) Integration in Settings
   - **Subsystem:** Authentication & GUI (`woderrise-github`, `woderrise-gui`)
   - **Dependencies:** None
   - **What:** Provide an input dialog in the GUI/CLI to store an optional GitHub Personal Access Token in the local keyring / config file.
   - **Benefit & Completion Criteria:** Increases GitHub search rate limits from 10/min to 30/min, and core REST API limits from 60/hr to 5,000/hr, with immediate gauge indicator updates.
 
-- [ ] **`TASK-NEXT-SEARCH-004`**: Fuzzy & Typo-Tolerant Search
+- [x] **`TASK-NEXT-SEARCH-004`**: Fuzzy & Typo-Tolerant Search
   - **Subsystem:** Search Engine (`woderrise-github`)
   - **Dependencies:** None
   - **What:** Replace simple substring matching in `crates/woderrise-github/src/search.rs` with a lightweight fuzzy matching crate (`sublime_fuzzy` or `nucleo-matcher`).
   - **Benefit & Completion Criteria:** Search queries tolerate typos and abbreviations (e.g. `ml4` -> `mylinuxforwork`, `hyprlnd` -> `hyprland`), ranking closest matches first.
 
-- [ ] **`TASK-NEXT-FEED-005`**: Remote Curated Catalog Feed (CDN Hosted)
+- [x] **`TASK-NEXT-FEED-005`**: Remote Curated Catalog Feed (CDN Hosted)
   - **Subsystem:** Registry & Infrastructure (`woderrise-github`, CI/CD)
   - **Dependencies:** `TASK-NEXT-DISC-001`
   - **What:** Publish a daily automated GitHub Action in the Woderrise repository that scans GitHub, verifies all components, and uploads a validated `catalog.v1.json` to a static CDN or GitHub Pages.
@@ -199,3 +199,57 @@ Every task in this backlog is structured to be completely actionable by an engin
   - **Dependencies:** None
   - **Issue:** Using dummy `text("").size(0)` or `container(text("").size(0))` for empty/conditional placeholders causes `cosmic-text` to panic with `assertion left != right failed: line height cannot be 0` (specifically in `screens/inspect.rs` lines 188/224, `screens/history.rs`, and `screens/install.rs`).
   - **Fix & Completion Criteria:** Eliminate all `size(0)` text widgets across the GUI; conditionally push elements into layout columns or use `iced::widget::Space::new(0, 0)` so clicking "Inspect" renders cleanly without crashing.
+
+---
+
+## 8. Milestone 7: High-Fidelity Inspection & Installation Detail View (Screen 2 Redesign)
+
+> **Reference Blueprint:** Production Mockup `uploaded_media_1793287257338.jpg`
+
+- [ ] **`TASK-M7-INSPECT-001`**: Desktop Preview Screenshot Carousel & State Model
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** None
+  - **What:** Extend `InspectState` with screenshot URL discovery, active carousel index tracking, and `<` / `>` navigation arrows overlaying or flanking the main preview canvas.
+  - **Completion Criteria:** Users can navigate forward and backward through repository screenshots with responsive sizing and graceful loading fallbacks.
+
+- [ ] **`TASK-M7-INSPECT-002`**: Interactive Thumbnail Preview Strip
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** `TASK-M7-INSPECT-001`
+  - **What:** Render a horizontal strip of mini thumbnail cards below the desktop preview.
+  - **Completion Criteria:** Displays up to 4 thumbnail previews; clicking a thumbnail jumps directly to that image; highlights the active thumbnail with an accent blue border (`#3B82F6`).
+
+- [ ] **`TASK-M7-INSPECT-003`**: Two-Column Metadata Matrix & Hardware Safety Banner
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** None
+  - **What:** Render side-by-side structured cards:
+    - **Repository Information**: Author, stars, default branch, last updated, license, and topic badges.
+    - **Target Environment & Architecture**: Description of Wayland configuration validation, 4-stat metric strip (Selected Components, Total Files, Total Size, Target Directory), and an amber **Hardware Display Preservation** warning banner.
+  - **Completion Criteria:** Information displays cleanly in a balanced 2-column grid; hardware protection status is immediately prominent.
+
+- [ ] **`TASK-M7-INSPECT-004`**: Recent / Key Files Quick-View Strip
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** None
+  - **What:** Query and display primary configuration entrypoints (`hyprland.conf`, `waybar/config`, `style.css`, etc.) in a horizontal card strip with type badges (`Config`, `Style`) and a `View All Files →` navigation shortcut.
+  - **Completion Criteria:** Clicking `View All Files →` directly switches the active tab to `InspectTab::FileTree`; file cards display accurate relative config paths.
+
+- [ ] **`TASK-M7-INSPECT-005`**: Rich Component Cards with Validation Status
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** None
+  - **What:** Redesign the `Detected Components` sidebar list into rich cards with:
+    - Dedicated glyph badges per component (Hyprland, Waybar, Hyprlock, Hypridle, Wallpapers).
+    - Subtitle descriptions (e.g. "Main configuration files", "Status bar configuration").
+    - File counts and human-readable byte sizes.
+    - Emerald green `✓ Valid` status badges.
+  - **Completion Criteria:** Checkboxes toggle selection state accurately; bulk `Select All` and `Deselect All` actions update all cards instantly; monitor configurations retain their protected state.
+
+- [ ] **`TASK-M7-INSPECT-006`**: Installation Summary Card & Direct CTA Flow
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** `TASK-M7-INSPECT-005`
+  - **What:** Implement the `Installation Summary` box displaying real-time metrics (selected count, total files, download size, target directory) coupled with a full-width `[ 📦 Continue to Installation → ]` primary action button.
+  - **Completion Criteria:** Clicking `Continue to Installation →` navigates directly into the diff and transactional installation pipeline; displays clear helper microcopy underneath.
+
+- [ ] **`TASK-M7-INSPECT-007`**: Hero Header Polish & Clipboard Integration
+  - **Subsystem:** Presentation / Inspect Screen (`woderrise-gui::screens::inspect`)
+  - **Dependencies:** None
+  - **What:** Update the repository hero header with avatar thumbnail, `@owner/repo` title, stars, branch, topic tags, and a 1-click clipboard copy button for the repository URL (`iced::clipboard::write`).
+  - **Completion Criteria:** Clicking copy writes the exact GitHub URL to the system clipboard and displays transient visual feedback.

@@ -11,7 +11,9 @@ pub mod widgets;
 
 pub use app::{App, EngineEvent, GuiCommand, Message, Screen};
 pub use screens::{
-    CategoryFilter, HistoryState, InspectState, InstallPhase, InstallState, SearchState,
+    CategoryFilter, HistoryAction, HistoryComponentFilter, HistoryMetrics, HistoryState,
+    HistoryStatusFilter, InspectState, InstallPhase, InstallState, RollbackConfirmState,
+    SearchState,
 };
 pub use theme::{fetch_portal_theme, map_color_scheme_to_theme, map_raw_scheme_value};
 pub use widgets::{view_card, FileDiffReport, RateLimitColorTier, RateLimitGaugeState};
@@ -636,18 +638,20 @@ pub async fn run_worker(
                 }
             }
 
-            GuiCommand::FetchRateLimits => {
-                let (core, search) = match github_client.get_rate_limit().await {
-                    Ok(limits) => limits,
-                    Err(_) => (
-                        github_client.rate_limiter().core_status(),
-                        github_client.rate_limiter().search_status(),
-                    ),
-                };
-                let _ = event_tx
-                    .send(EngineEvent::RateLimitsUpdated { core, search })
-                    .await;
-            }
+            GuiCommand::FetchRateLimits => match github_client.get_rate_limit().await {
+                Ok((core, search)) => {
+                    let _ = event_tx
+                        .send(EngineEvent::RateLimitsUpdated { core, search })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = event_tx
+                        .send(EngineEvent::RateLimitsFetchFailed {
+                            error: e.to_string(),
+                        })
+                        .await;
+                }
+            },
 
             GuiCommand::SetGitHubToken { token } => {
                 let settings_path = tx_engine.xdg.settings_file();

@@ -15,18 +15,16 @@ The delivery of Woderrise is organized into six disciplined, sequential mileston
 gantt
     title Woderrise Engineering Roadmap
     dateFormat  YYYY-MM-DD
-    section Specifications
+    section Core & Engine
     M0 Architecture & Specs           :done, m0, 2026-10-01, 2026-10-24
-    section Engine & Core
-    M1 Transaction Engine & CLI       :active, m1, 2026-10-25, 2026-12-15
-    section Services & IPC
-    M2 D-Bus Daemon & Polkit Broker   :m2, 2026-12-16, 2027-01-31
-    section Frontend
-    M3 Native Libadwaita GUI          :m3, 2027-02-01, 2027-03-31
-    section Ecosystem
-    M4 Community Registry & Seeding   :m4, 2027-04-01, 2027-05-15
-    section Federation
-    M5 Sandboxing & Multi-Distro      :m5, 2027-05-16, 2027-06-30
+    M1 Transaction Engine & CLI       :done, m1, 2026-10-25, 2026-10-26
+    M2 Component Detection & Pipeline :done, m2, 2026-10-26, 2026-10-27
+    M3 Native Desktop GUI             :done, m3, 2026-10-27, 2026-10-28
+    M4 Testing & Hardening            :done, m4, 2026-10-28, 2026-10-28
+    M5 E2E GUI Cross-Screen Suite     :done, m5, 2026-10-28, 2026-10-29
+    M6 Discovery Engine & Curation    :done, m6, 2026-10-29, 2026-10-29
+    section Next
+    M7 High-Fidelity Detail View      :active, m7, 2026-10-29, 2026-11-15
 ```
 
 ---
@@ -113,8 +111,9 @@ gantt
 
 ---
 
-### Milestone 6: Discovery Engine & UX Enhancements (Next Iteration)
+### Milestone 6: Discovery Engine & UX Enhancements
 - **Target Timeline:** Q3 2027 (4 Weeks)
+- **Status:** ✅ **Completed**
 - **Dependencies:** Milestone 4 & 5 completion.
 - **Core Deliverables:**
   - **Background Tree Pre-Inspection:** Asynchronous background tree fetching via Fastly CDN / GitHub Git Trees API to populate component badges eagerly on discovery cards.
@@ -122,6 +121,21 @@ gantt
   - **GitHub PAT Integration:** Keyring-backed GitHub Personal Access Token settings to increase search quotas to 30/min and core API calls to 5,000/hr.
   - **Fuzzy Search:** Typo-tolerant substring and abbreviation matching (`sublime_fuzzy` / `nucleo-matcher`).
   - **Remote Curated Catalog Feed:** Nightly GitHub Action compiling and hosting a signed static `catalog.v1.json` on a CDN with 0 API quota consumption.
+
+---
+
+### Milestone 7: High-Fidelity Inspection & Installation Experience (Screen 2 Redesign)
+- **Target Timeline:** Next Sprint (Active Milestone)
+- **Status:** 🚧 **In Planning / Next Up**
+- **Dependencies:** Milestone 6 completion.
+- **Reference Specification:** Production Mockup (`uploaded_media_1793287257338.jpg`).
+- **Core Deliverables:**
+  - **Hero Header & Clipboard Integration:** Repository avatar thumbnail, @owner/repo identifier, topic tags pill row, external GitHub button, and one-click URL clipboard copy with visual feedback.
+  - **Desktop Preview Carousel & Thumbnail Strip:** Interactive screenshot viewport with navigation chevrons (`<` / `>`) and horizontal thumbnail selector strip with active accent borders.
+  - **Two-Column Metadata & Environment Matrix:** Side-by-side cards for structured repository metadata (author, stars, branch, license, topics) and target Wayland environment metrics, featuring a prominent Amber Hardware Display Preservation safety banner.
+  - **Recent Files Quick-View Strip:** Horizontal cards highlighting key entrypoint files (`hyprland.conf`, `waybar/config`, `style.css`, etc.) with format badges and a direct shortcut to the File Tree tab.
+  - **Rich Component Cards & Validation Status:** Interactive sidebar components featuring branded glyphs, descriptive subtitles, file and byte counters, and green `✓ Valid` status badges.
+  - **Installation Summary & Primary CTA:** Real-time selection summary box with a high-visibility `[ Continue to Installation → ]` button directly guiding users into the pre-flight diff and transaction engine.
 
 ---
 

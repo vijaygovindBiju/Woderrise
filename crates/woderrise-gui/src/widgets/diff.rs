@@ -3,9 +3,11 @@
 //! Visualizes dotfile line additions (+), deletions (-), and context lines
 //! with clean styling matching Wayland desktop ricing aesthetics.
 
-use iced::widget::{column, container, row, scrollable, text};
-use iced::{Color, Element, Length};
+use iced::widget::{column, container, row, scrollable, text, Space};
+use iced::{Border, Color, Element, Length, Theme};
 use similar::{ChangeTag, TextDiff};
+
+use crate::theme;
 
 /// A single line in a diff representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,21 +80,46 @@ impl FileDiffReport {
     }
 }
 
-/// Renders a `FileDiffReport` as an Iced Element.
+/// Renders a `FileDiffReport` as an Iced Element with default dark theme.
 pub fn view_diff<'a, Message: 'a>(report: &'a FileDiffReport) -> Element<'a, Message> {
+    view_diff_themed(report, &Theme::Dark)
+}
+
+/// Renders a `FileDiffReport` as an Iced Element styled with the specified theme tokens.
+pub fn view_diff_themed<'a, Message: 'a>(
+    report: &'a FileDiffReport,
+    theme: &Theme,
+) -> Element<'a, Message> {
+    let tokens = theme::tokens(theme);
+
     let header = container(
         row![
-            text(&report.file_path).size(14),
+            text(&report.file_path).size(13).color(tokens.text_primary),
+            Space::new().width(Length::Fill),
             text(format!("+{}", report.additions))
-                .size(13)
-                .color(Color::from_rgb(0.3, 0.8, 0.3)),
+                .size(12)
+                .color(tokens.success),
             text(format!("-{}", report.deletions))
-                .size(13)
-                .color(Color::from_rgb(0.9, 0.3, 0.3)),
+                .size(12)
+                .color(tokens.danger),
         ]
-        .spacing(12),
+        .spacing(12)
+        .align_y(iced::Alignment::Center),
     )
-    .padding(8);
+    .padding([8, 12])
+    .style(move |_theme| container::Style {
+        background: Some(tokens.bg_surface.into()),
+        border: Border {
+            color: tokens.border_subtle,
+            width: 1.0,
+            radius: Border {
+                radius: theme::radius::SM,
+                ..Default::default()
+            }
+            .radius,
+        },
+        ..Default::default()
+    });
 
     let mut diff_column = column![header].spacing(2);
 
@@ -100,15 +127,15 @@ pub fn view_diff<'a, Message: 'a>(report: &'a FileDiffReport) -> Element<'a, Mes
         let (sign, text_color, bg_color) = match line.tag {
             ChangeTag::Insert => (
                 "+",
-                Color::from_rgb(0.2, 0.85, 0.3),
-                Color::from_rgba(0.1, 0.5, 0.1, 0.15),
+                tokens.success,
+                Color::from_rgba(tokens.success.r, tokens.success.g, tokens.success.b, 0.12),
             ),
             ChangeTag::Delete => (
                 "-",
-                Color::from_rgb(0.95, 0.35, 0.35),
-                Color::from_rgba(0.6, 0.1, 0.1, 0.15),
+                tokens.danger,
+                Color::from_rgba(tokens.danger.r, tokens.danger.g, tokens.danger.b, 0.12),
             ),
-            ChangeTag::Equal => (" ", Color::from_rgb(0.7, 0.7, 0.75), Color::TRANSPARENT),
+            ChangeTag::Equal => (" ", tokens.text_secondary, Color::TRANSPARENT),
         };
 
         let old_num = line.old_line.map(|n| n.to_string()).unwrap_or_default();
@@ -117,17 +144,17 @@ pub fn view_diff<'a, Message: 'a>(report: &'a FileDiffReport) -> Element<'a, Mes
         let line_row = row![
             text(format!("{:>4}", old_num))
                 .size(11)
-                .color(Color::from_rgb(0.45, 0.45, 0.5)),
+                .color(tokens.text_muted),
             text(format!("{:>4}", new_num))
                 .size(11)
-                .color(Color::from_rgb(0.45, 0.45, 0.5)),
+                .color(tokens.text_muted),
             text(sign).size(12).color(text_color),
             text(&line.content).size(12).color(text_color),
         ]
         .spacing(8);
 
         let styled_line = container(line_row)
-            .padding([2, 6])
+            .padding([2, 8])
             .width(Length::Fill)
             .style(move |_theme| container::Style {
                 background: Some(bg_color.into()),
@@ -137,5 +164,16 @@ pub fn view_diff<'a, Message: 'a>(report: &'a FileDiffReport) -> Element<'a, Mes
         diff_column = diff_column.push(styled_line);
     }
 
-    scrollable(diff_column).into()
+    container(scrollable(diff_column))
+        .padding(6)
+        .style(move |_theme| container::Style {
+            background: Some(tokens.bg_card.into()),
+            border: Border {
+                color: tokens.border_card,
+                width: 1.0,
+                radius: theme::radius::MD,
+            },
+            ..Default::default()
+        })
+        .into()
 }

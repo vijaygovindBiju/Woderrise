@@ -1,26 +1,80 @@
 //! Elm architecture application root, state machine, and Tokio channel bridge for Woderrise.
 
 use camino::Utf8PathBuf;
-use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, row, text, Space};
+use iced::{Alignment, Border, Color, Element, Length, Task, Theme};
 use std::sync::Mutex;
 use tracing::info;
 
+use crate::theme;
+
 use woderrise_core::models::{
-    ActiveTransaction, CatalogRepository, ConfigComponent, DetectedComponent, JournalEntry,
-    StagedFile, TargetMapping, VerificationReport,
+    ActiveTransaction, CatalogRepository, ConfigComponent, ConflictStatus, DetectedComponent,
+    JournalEntry, StagedFile, TargetMapping, VerificationReport,
 };
 use woderrise_detect::{ComponentDetection, TreeEntry};
 use woderrise_github::{GitTree, RateLimitStatus};
 use woderrise_transaction::{RecoveryOutcome, RollbackReport};
 
-use crate::screens::history::{view_history, HistoryState};
-use crate::screens::inspect::{view_inspect, InspectState, InspectTab};
+use crate::screens::history::{view_history, HistoryAction, HistoryState};
+use chrono::{DateTime, Utc};
+
+use crate::screens::inspect::{view_inspect, InspectAction, InspectState, InspectTab};
 use crate::screens::install::{view_install, InstallPhase, InstallState};
-use crate::screens::search::{view_search, CategoryFilter, SearchState};
-use crate::screens::settings::{view_settings, SettingsState};
+use crate::screens::search::{view_search, CategoryFilter, SearchState, SortOption};
+use crate::screens::settings::{
+    calculate_directory_stats, format_bytes, safe_cleanup_cache, view_settings, CacheStats,
+    SettingsAction, SettingsState, SettingsTab, ThemeMode, UiDensity,
+};
 use crate::widgets::diff::FileDiffReport;
-use crate::widgets::gauge::view_gauge;
+use crate::widgets::gauge::{view_gauge, RateLimitGaugeState};
+
+pub use crate::screens::settings::{format_reset_countdown, format_reset_duration};
+
+/// Authoritative live connection and quota state for navigation header and Screen 4.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveConnectionState {
+    pub core_remaining: u32,
+    pub core_limit: u32,
+    pub core_reset: DateTime<Utc>,
+    pub search_remaining: u32,
+    pub search_limit: u32,
+    pub search_reset: DateTime<Utc>,
+    pub is_authenticated: bool,
+    pub username: Option<String>,
+    pub last_checked: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub rate_limits: RateLimitGaugeState,
+}
+
+impl Default for LiveConnectionState {
+    fn default() -> Self {
+        Self {
+            core_remaining: 60,
+            core_limit: 60,
+            core_reset: Utc::now() + chrono::Duration::hours(1),
+            search_remaining: 10,
+            search_limit: 10,
+            search_reset: Utc::now() + chrono::Duration::minutes(1),
+            is_authenticated: false,
+            username: None,
+            last_checked: None,
+            last_error: None,
+            rate_limits: RateLimitGaugeState::new(60, 60, 10, 10),
+        }
+    }
+}
+
+impl LiveConnectionState {
+    pub fn to_gauge_state(&self) -> RateLimitGaugeState {
+        RateLimitGaugeState {
+            core_remaining: self.core_remaining,
+            core_limit: self.core_limit,
+            search_remaining: self.search_remaining,
+            search_limit: self.search_limit,
+        }
+    }
+}
 
 /// Commands dispatched from GUI event loop to Tokio background worker.
 #[derive(Debug)]
@@ -181,6 +235,9 @@ pub enum EngineEvent {
         core: RateLimitStatus,
         search: RateLimitStatus,
     },
+    RateLimitsFetchFailed {
+        error: String,
+    },
     TokenVerificationFailed {
         error: String,
     },
@@ -213,13 +270,16 @@ pub enum Message {
     SearchInputChanged(String),
     SearchDebounceFired(String),
     SearchSubmitted,
+    SearchClear,
     FilterSelected(CategoryFilter),
+    SortSelected(SortOption),
     SelectRepo(CatalogRepository),
 
     // Inspect screen interactions
     SelectInspectTab(InspectTab),
     ToggleComponent(ConfigComponent),
     InitiateInstall,
+    InspectAction(InspectAction),
 
     // Install screen interactions
     ToggleDirectiveApproval(usize),
@@ -228,21 +288,32 @@ pub enum Message {
     InstallDone,
 
     // History & Rollback interactions
+    HistoryAction(HistoryAction),
     RequestRollbackLatest { force_dirty: bool },
     RequestRollbackTx { tx_id: String, force_dirty: bool },
     CloseDirtyModal,
 
     // Settings screen interactions
+    SettingsAction(SettingsAction),
+    SettingsTabSelected(SettingsTab),
+    SettingsThemeSelected(ThemeMode),
+    SettingsDensitySelected(UiDensity),
+    SettingsTimeoutSelected(u64),
+    SettingsClearCache,
     SettingsTokenChanged(String),
     SettingsToggleMask,
     SettingsSaveToken,
     SettingsClearToken,
     SettingsTestConnection,
+    SettingsRefreshStatus,
 
     // Theming & Alerts
     ToggleDarkMode(bool),
     DismissError,
     DismissStartupNotice,
+
+    // Periodic 1-second clock tick for live countdown timers
+    ClockTick,
 
     // Async Channel Deliveries
     Engine(EngineEvent),
@@ -281,6 +352,7 @@ pub struct App {
     pub install_state: Option<InstallState>,
     pub history_state: HistoryState,
     pub settings_state: SettingsState,
+    pub connection_state: LiveConnectionState,
     pub active_theme: Theme,
     pub error_banner: Option<String>,
     pub startup_notice: Option<String>,
@@ -313,13 +385,30 @@ impl App {
             .and_then(|paths| woderrise_core::models::load_settings(&paths.settings_file()).ok())
             .and_then(|s| s.github_token);
 
+        let is_auth = current_token
+            .as_ref()
+            .map(|t| !t.trim().is_empty())
+            .unwrap_or(false);
+
+        let mut settings_state = SettingsState::new(current_token);
+
+        if let Ok(paths) = woderrise_core::paths::XdgPaths::from_env() {
+            if let Ok(stats) = calculate_directory_stats(&paths.woderrise_cache_dir()) {
+                settings_state.cache_stats = stats;
+            }
+        }
+
         Self {
             active_screen: Screen::Search,
             search_state: SearchState::new(Vec::new()),
             inspect_state: None,
             install_state: None,
             history_state: HistoryState::from_journal_entries(&[]),
-            settings_state: SettingsState::new(current_token),
+            settings_state,
+            connection_state: LiveConnectionState {
+                is_authenticated: is_auth,
+                ..Default::default()
+            },
             active_theme: Theme::Dark,
             error_banner: None,
             startup_notice,
@@ -339,8 +428,39 @@ impl App {
         self.active_theme.clone()
     }
 
+    /// Returns true if the 1-second periodic clock tick subscription should be active.
+    ///
+    /// Active strictly when:
+    /// - The user is on the Settings screen (where live API quota countdowns are displayed), OR
+    /// - A GitHub connection test is actively running (`is_testing_connection == true`).
+    ///
+    /// Returns `false` on Discover, Inspect, Install, and History screens when idle,
+    /// eliminating continuous event-loop wakeups, GPU redraws, and battery drain.
+    pub fn is_clock_tick_needed(&self) -> bool {
+        matches!(self.active_screen, Screen::Settings) || self.is_testing_connection
+    }
+
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        iced::Subscription::run(engine_subscription)
+        let mut subs = vec![
+            iced::Subscription::run(engine_subscription),
+            iced::keyboard::listen().filter_map(|event| match event {
+                iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                    ..
+                } => Some(Message::SearchClear),
+                _ => None,
+            }),
+        ];
+
+        // 1-second clock tick subscription is scoped strictly to Settings or active connection tests.
+        // Prevents continuous wakeups, view rebuilds, and battery drain when on Discover, Inspect, or History.
+        if self.is_clock_tick_needed() {
+            subs.push(
+                iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::ClockTick),
+            );
+        }
+
+        iced::Subscription::batch(subs)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -350,6 +470,11 @@ impl App {
                 if screen == Screen::History {
                     let _ = self.cmd_tx.try_send(GuiCommand::LoadHistory);
                 } else if screen == Screen::Settings {
+                    if let Ok(paths) = woderrise_core::paths::XdgPaths::from_env() {
+                        if let Ok(stats) = calculate_directory_stats(&paths.woderrise_cache_dir()) {
+                            self.settings_state.cache_stats = stats;
+                        }
+                    }
                     let _ = self.cmd_tx.try_send(GuiCommand::FetchRateLimits);
                 }
             }
@@ -365,6 +490,16 @@ impl App {
                 if query.trim().is_empty() {
                     self.search_state.is_searching = false;
                     let _ = self.cmd_tx.try_send(GuiCommand::RefreshCatalog);
+                    return Task::none();
+                } else {
+                    let query_clone = query;
+                    return Task::perform(
+                        async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                            query_clone
+                        },
+                        Message::SearchDebounceFired,
+                    );
                 }
             }
 
@@ -398,8 +533,20 @@ impl App {
                 }
             }
 
+            Message::SearchClear => {
+                self.search_state.clear();
+                if let Some(token) = self.search_cancel_token.take() {
+                    token.cancel();
+                }
+                let _ = self.cmd_tx.try_send(GuiCommand::RefreshCatalog);
+            }
+
             Message::FilterSelected(filter) => {
                 self.search_state.set_filter(filter);
+            }
+
+            Message::SortSelected(sort) => {
+                self.search_state.set_sort_option(sort);
             }
 
             Message::SelectRepo(repo) => {
@@ -430,43 +577,155 @@ impl App {
                 }
             }
 
+            Message::InspectAction(action) => match action {
+                InspectAction::Back => {
+                    self.active_screen = Screen::Search;
+                }
+                InspectAction::SelectTab(tab) => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.active_tab = tab;
+                        if tab == InspectTab::DiffAndInstall && inspect.diff_reports.is_empty() {
+                            let mappings = inspect.resolve_target_mappings();
+                            let overwrites: Vec<_> = mappings
+                                .into_iter()
+                                .filter(|m| {
+                                    m.conflict_status == ConflictStatus::OverwritingExisting
+                                })
+                                .collect();
+                            if !overwrites.is_empty() {
+                                let _ = self.cmd_tx.try_send(GuiCommand::ComputeDiff {
+                                    repo: inspect.repository.resolved_full_name(),
+                                    commit_sha: inspect.repository.default_branch.clone(),
+                                    mappings: overwrites,
+                                });
+                            }
+                        }
+                    }
+                }
+                InspectAction::ToggleComponent(comp) => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.toggle_component(comp);
+                    }
+                }
+                InspectAction::ToggleFile { path, component } => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.toggle_file(&path, component);
+                    }
+                }
+                InspectAction::SelectAllComponents => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.select_all_components();
+                    }
+                }
+                InspectAction::DeselectAllComponents => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.deselect_all_components();
+                    }
+                }
+                InspectAction::ToggleExpandComponent(comp) => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.toggle_expand_component(comp);
+                    }
+                }
+                InspectAction::TreeFilterChanged(filter) => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.tree_filter = filter;
+                    }
+                }
+                InspectAction::InspectFile(path) => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.preview_file = Some(path.clone());
+                        inspect.preview_content = None;
+                        inspect.is_fetching_file = true;
+                        let blob_sha = inspect
+                            .full_tree_entries
+                            .iter()
+                            .find(|e| e.path == path)
+                            .map(|e| e.sha.clone());
+                        let _ = self.cmd_tx.try_send(GuiCommand::FetchFileContent {
+                            repo: inspect.repository.resolved_full_name(),
+                            commit_sha: inspect.repository.default_branch.clone(),
+                            path,
+                            blob_sha,
+                        });
+                    }
+                }
+                InspectAction::OpenConfirmDialog => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.open_confirm_dialog();
+                    }
+                }
+                InspectAction::CloseConfirmDialog => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.close_confirm_dialog();
+                    }
+                }
+                InspectAction::ToggleDirective(idx) => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.toggle_directive_approval(idx);
+                    }
+                }
+                InspectAction::ConfirmInstall => {
+                    if let Some(inspect) = &mut self.inspect_state {
+                        inspect.close_confirm_dialog();
+                    }
+                    return self.update(Message::InitiateInstall);
+                }
+                InspectAction::OpenExternalUrl(url) => {
+                    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                }
+            },
+
             Message::InitiateInstall => {
                 if let Some(inspect) = &self.inspect_state {
                     let tx_id = format!("tx_{}", uuid::Uuid::new_v4().simple());
                     let selected: Vec<ConfigComponent> =
                         inspect.selected_components.iter().copied().collect();
 
-                    let install = InstallState::new(
+                    let mut install = InstallState::new(
                         tx_id.clone(),
                         inspect.repository.clone(),
                         selected.clone(),
                         inspect.procedural_directives.clone(),
                     );
+                    for &idx in &inspect.approved_directives {
+                        if let Some(approval) = install.directive_approvals.get_mut(idx) {
+                            approval.approved = true;
+                        }
+                    }
                     self.install_state = Some(install);
                     self.active_screen = Screen::Install;
 
-                    // Collect matched tree entries for selected components
+                    // Collect matched tree entries for selected components, excluding deselected_files
                     let mut entries = Vec::new();
                     for detection in &inspect.raw_detections {
                         if inspect.selected_components.contains(&detection.component) {
                             if !detection.matched_entries.is_empty() {
-                                entries.extend(detection.matched_entries.clone());
+                                for entry in &detection.matched_entries {
+                                    if !inspect.deselected_files.contains(&entry.path) {
+                                        entries.push(entry.clone());
+                                    }
+                                }
                             } else {
-                                entries.push(TreeEntry::new(
-                                    detection.entrypoint.clone(),
-                                    "100644",
-                                    "blob",
-                                    "0000000000000000000000000000000000000000",
-                                    Some(detection.total_size_bytes),
-                                ));
-                                if let Some(style) = &detection.style_file {
+                                if !inspect.deselected_files.contains(&detection.entrypoint) {
                                     entries.push(TreeEntry::new(
-                                        style.clone(),
+                                        detection.entrypoint.clone(),
                                         "100644",
                                         "blob",
                                         "0000000000000000000000000000000000000000",
-                                        None,
+                                        Some(detection.total_size_bytes),
                                     ));
+                                }
+                                if let Some(style) = &detection.style_file {
+                                    if !inspect.deselected_files.contains(style) {
+                                        entries.push(TreeEntry::new(
+                                            style.clone(),
+                                            "100644",
+                                            "blob",
+                                            "0000000000000000000000000000000000000000",
+                                            None,
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -474,21 +733,25 @@ impl App {
                     if entries.is_empty() {
                         for comp in &inspect.detected_components {
                             if inspect.selected_components.contains(&comp.component) {
-                                entries.push(TreeEntry::new(
-                                    comp.entrypoint.clone(),
-                                    "100644",
-                                    "blob",
-                                    "0000000000000000000000000000000000000000",
-                                    Some(comp.total_size_bytes),
-                                ));
-                                if let Some(style) = &comp.style_file {
+                                if !inspect.deselected_files.contains(&comp.entrypoint) {
                                     entries.push(TreeEntry::new(
-                                        style.clone(),
+                                        comp.entrypoint.clone(),
                                         "100644",
                                         "blob",
                                         "0000000000000000000000000000000000000000",
-                                        None,
+                                        Some(comp.total_size_bytes),
                                     ));
+                                }
+                                if let Some(style) = &comp.style_file {
+                                    if !inspect.deselected_files.contains(style) {
+                                        entries.push(TreeEntry::new(
+                                            style.clone(),
+                                            "100644",
+                                            "blob",
+                                            "0000000000000000000000000000000000000000",
+                                            None,
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -559,6 +822,47 @@ impl App {
                 let _ = self.cmd_tx.try_send(GuiCommand::LoadHistory);
             }
 
+            Message::HistoryAction(action) => match action {
+                HistoryAction::SearchChanged(q) => {
+                    self.history_state.search_query = q;
+                }
+                HistoryAction::StatusFilterSelected(sf) => {
+                    self.history_state.status_filter = sf;
+                }
+                HistoryAction::ComponentFilterSelected(cf) => {
+                    self.history_state.component_filter = cf;
+                }
+                HistoryAction::ClearFilters => {
+                    self.history_state.clear_filters();
+                }
+                HistoryAction::Inspect(item) => {
+                    self.history_state.open_inspect_modal(item);
+                }
+                HistoryAction::CloseInspect => {
+                    self.history_state.close_inspect_modal();
+                }
+                HistoryAction::OpenRollbackConfirm(item) => {
+                    self.history_state.open_rollback_confirm(&item);
+                }
+                HistoryAction::CloseRollbackConfirm => {
+                    self.history_state.close_rollback_confirm();
+                }
+                HistoryAction::ExecuteRollback { tx_id, force_dirty } => {
+                    self.history_state.close_rollback_confirm();
+                    self.history_state.is_rolling_back = true;
+                    self.history_state.close_dirty_modal();
+                    let _ = self
+                        .cmd_tx
+                        .try_send(GuiCommand::RollbackTransaction { tx_id, force_dirty });
+                }
+                HistoryAction::CloseDirtyModal => {
+                    self.history_state.close_dirty_modal();
+                }
+                HistoryAction::NavigateDiscover => {
+                    self.active_screen = Screen::Search;
+                }
+            },
+
             Message::RequestRollbackLatest { force_dirty } => {
                 self.history_state.is_rolling_back = true;
                 let _ = self
@@ -576,6 +880,100 @@ impl App {
 
             Message::CloseDirtyModal => {
                 self.history_state.close_dirty_modal();
+            }
+
+            Message::ClockTick => {
+                // Second-by-second UI refresh for live countdown timers
+            }
+
+            Message::SettingsAction(action) => match action {
+                SettingsAction::TabSelected(tab) => {
+                    return self.update(Message::SettingsTabSelected(tab));
+                }
+                SettingsAction::TokenChanged(token) => {
+                    return self.update(Message::SettingsTokenChanged(token));
+                }
+                SettingsAction::ToggleMask => {
+                    return self.update(Message::SettingsToggleMask);
+                }
+                SettingsAction::SaveToken => {
+                    return self.update(Message::SettingsSaveToken);
+                }
+                SettingsAction::ClearToken => {
+                    return self.update(Message::SettingsClearToken);
+                }
+                SettingsAction::TestConnection => {
+                    return self.update(Message::SettingsTestConnection);
+                }
+                SettingsAction::RefreshStatus => {
+                    return self.update(Message::SettingsRefreshStatus);
+                }
+                SettingsAction::ThemeSelected(mode) => {
+                    return self.update(Message::SettingsThemeSelected(mode));
+                }
+                SettingsAction::DensitySelected(density) => {
+                    return self.update(Message::SettingsDensitySelected(density));
+                }
+                SettingsAction::TimeoutSelected(secs) => {
+                    return self.update(Message::SettingsTimeoutSelected(secs));
+                }
+                SettingsAction::ClearCache => {
+                    return self.update(Message::SettingsClearCache);
+                }
+                SettingsAction::RefreshCatalog => {
+                    let _ = self.cmd_tx.try_send(GuiCommand::RefreshCatalog);
+                }
+            },
+
+            Message::SettingsTabSelected(tab) => {
+                self.settings_state.set_tab(tab);
+            }
+
+            Message::SettingsThemeSelected(mode) => {
+                self.settings_state.set_theme_mode(mode);
+                match mode {
+                    ThemeMode::Dark => self.active_theme = Theme::Dark,
+                    ThemeMode::Light => self.active_theme = Theme::Light,
+                    ThemeMode::System => {
+                        return Task::perform(crate::theme::fetch_portal_theme(), |theme| {
+                            Message::ToggleDarkMode(theme == Theme::Dark)
+                        });
+                    }
+                }
+            }
+
+            Message::SettingsDensitySelected(density) => {
+                self.settings_state.set_ui_density(density);
+            }
+
+            Message::SettingsTimeoutSelected(secs) => {
+                self.settings_state.set_timeout(secs);
+            }
+
+            Message::SettingsClearCache => {
+                self.settings_state.is_clearing_cache = true;
+                let cache_dir = woderrise_core::paths::XdgPaths::from_env()
+                    .map(|p| p.woderrise_cache_dir())
+                    .unwrap_or_else(|_| camino::Utf8PathBuf::from("/tmp/woderrise_cache"));
+                match safe_cleanup_cache(&cache_dir) {
+                    Ok((count, bytes)) => {
+                        self.settings_state.cache_stats = CacheStats::default();
+                        self.settings_state.is_clearing_cache = false;
+                        self.settings_state.set_notice(
+                            format!(
+                                "✓ Cache cleaned successfully. Freed {} across {} items.",
+                                format_bytes(bytes),
+                                count
+                            ),
+                            false,
+                        );
+                    }
+                    Err(e) => {
+                        self.settings_state.is_clearing_cache = false;
+                        self.settings_state
+                            .set_notice(format!("Failed to clean cache: {}", e), true);
+                    }
+                }
             }
 
             Message::SettingsTokenChanged(token) => {
@@ -630,6 +1028,15 @@ impl App {
                 let _ = self.cmd_tx.try_send(GuiCommand::FetchRateLimits);
             }
 
+            Message::SettingsRefreshStatus => {
+                self.settings_state.is_busy = true;
+                self.is_testing_connection = true;
+                self.pending_token_save = None;
+                self.settings_state
+                    .set_notice("Refreshing GitHub API rate limit quotas...", false);
+                let _ = self.cmd_tx.try_send(GuiCommand::FetchRateLimits);
+            }
+
             Message::ToggleDarkMode(dark) => {
                 self.active_theme = if dark { Theme::Dark } else { Theme::Light };
             }
@@ -677,6 +1084,13 @@ impl App {
                 self.search_state.catalog_repositories = results;
                 self.search_state.rate_limits.search_remaining = search_quota.remaining;
                 self.search_state.rate_limits.search_limit = search_quota.limit;
+                self.connection_state.search_remaining = search_quota.remaining;
+                self.connection_state.search_limit = search_quota.limit;
+                self.connection_state.search_reset = search_quota.reset_time;
+                self.connection_state.last_checked = Some(Utc::now());
+                self.connection_state.rate_limits.search_remaining = search_quota.remaining;
+                self.connection_state.rate_limits.search_limit = search_quota.limit;
+                self.settings_state.search_reset = Some(search_quota.reset_time);
                 self.search_state.apply_filter();
             }
 
@@ -696,12 +1110,31 @@ impl App {
             }
 
             EngineEvent::TreeLoaded {
-                tree: _,
-                detections,
-                ..
+                tree, detections, ..
             } => {
                 if let Some(inspect) = &mut self.inspect_state {
                     inspect.is_loading = false;
+                    let mut tree_entries: Vec<TreeEntry> = tree
+                        .tree
+                        .iter()
+                        .map(|e| {
+                            TreeEntry::new(
+                                e.path.clone(),
+                                e.mode.clone(),
+                                e.entry_type.clone(),
+                                e.sha.clone(),
+                                e.size,
+                            )
+                        })
+                        .collect();
+                    if tree_entries.is_empty() {
+                        for d in &detections {
+                            tree_entries.extend(d.matched_entries.clone());
+                        }
+                    }
+                    tree_entries.sort_by(|a, b| a.path.cmp(&b.path));
+                    tree_entries.dedup_by(|a, b| a.path == b.path);
+                    inspect.full_tree_entries = tree_entries;
                     inspect.detected_components = detections.iter().map(|d| d.into()).collect();
                     inspect.raw_detections = detections.clone();
                     for d in &detections {
@@ -715,6 +1148,7 @@ impl App {
 
             EngineEvent::FileContentFetched { path, content, .. } => {
                 if let Some(inspect) = &mut self.inspect_state {
+                    inspect.is_fetching_file = false;
                     if path.to_lowercase().ends_with("readme.md") {
                         if let Ok(src) = String::from_utf8(content.clone()) {
                             inspect.set_markdown(src);
@@ -840,6 +1274,27 @@ impl App {
             }
 
             EngineEvent::RateLimitsUpdated { core, search } => {
+                self.connection_state.core_remaining = core.remaining;
+                self.connection_state.core_limit = core.limit;
+                self.connection_state.core_reset = core.reset_time;
+                self.connection_state.search_remaining = search.remaining;
+                self.connection_state.search_limit = search.limit;
+                self.connection_state.search_reset = search.reset_time;
+                self.connection_state.is_authenticated = self.settings_state.is_authenticated();
+                self.connection_state.last_checked = Some(Utc::now());
+                self.connection_state.last_error = None;
+
+                self.settings_state.core_reset = Some(core.reset_time);
+                self.settings_state.search_reset = Some(search.reset_time);
+                self.settings_state.last_checked = Some(Utc::now());
+
+                self.connection_state.rate_limits = RateLimitGaugeState::new(
+                    core.remaining,
+                    core.limit,
+                    search.remaining,
+                    search.limit,
+                );
+
                 self.search_state.set_rate_limits(
                     core.remaining,
                     core.limit,
@@ -858,6 +1313,7 @@ impl App {
                     );
                 } else if let Some(saved) = self.pending_token_save.take() {
                     self.settings_state.set_saved(saved);
+                    self.connection_state.is_authenticated = self.settings_state.is_authenticated();
                 } else if self.settings_state.is_busy {
                     let token = if self.settings_state.token_input.trim().is_empty() {
                         None
@@ -865,6 +1321,7 @@ impl App {
                         Some(self.settings_state.token_input.trim().to_string())
                     };
                     self.settings_state.set_saved(token);
+                    self.connection_state.is_authenticated = self.settings_state.is_authenticated();
                 } else if self.active_screen == Screen::Settings {
                     self.settings_state.set_notice(
                         format!(
@@ -873,6 +1330,18 @@ impl App {
                         ),
                         false,
                     );
+                }
+            }
+
+            EngineEvent::RateLimitsFetchFailed { error } => {
+                self.connection_state.last_error = Some(error.clone());
+                if self.is_testing_connection {
+                    self.is_testing_connection = false;
+                    self.settings_state.is_busy = false;
+                    self.settings_state
+                        .set_notice(format!("Connection test failed: {}", error), true);
+                    self.error_banner =
+                        Some(format!("GitHub API connection test failed: {}", error));
                 }
             }
 
@@ -902,45 +1371,83 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        let tokens = theme::tokens(&self.active_theme);
+
         // 1. Navigation Header Bar
-        let brand = text("WODERRISE")
-            .size(17)
-            .color(Color::from_rgb(0.55, 0.75, 0.98));
+        let brand = row![
+            text("🌊").size(18),
+            text("WODERRISE").size(16).color(tokens.text_primary),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        let is_search = self.active_screen == Screen::Search;
+        let is_history = self.active_screen == Screen::History;
+        let is_settings = self.active_screen == Screen::Settings;
 
         let nav_search = button(text("Discover").size(13))
-            .padding([6, 12])
-            .on_press(Message::NavigateTo(Screen::Search));
+            .padding([6, 14])
+            .on_press(Message::NavigateTo(Screen::Search))
+            .style(move |_theme, status| theme::button_tab(tokens, is_search, status));
+
         let nav_history = button(text("History & Rollback").size(13))
-            .padding([6, 12])
-            .on_press(Message::NavigateTo(Screen::History));
+            .padding([6, 14])
+            .on_press(Message::NavigateTo(Screen::History))
+            .style(move |_theme, status| theme::button_tab(tokens, is_history, status));
+
         let nav_settings = button(text("⚙ Settings").size(13))
-            .padding([6, 12])
-            .on_press(Message::NavigateTo(Screen::Settings));
+            .padding([6, 14])
+            .on_press(Message::NavigateTo(Screen::Settings))
+            .style(move |_theme, status| theme::button_tab(tokens, is_settings, status));
 
-        let rate_gauge = view_gauge(&self.search_state.rate_limits);
+        let nav_pill_bar = container(row![nav_search, nav_history, nav_settings].spacing(4))
+            .padding(3)
+            .style(move |_theme| container::Style {
+                background: Some(tokens.bg_base.into()),
+                border: Border {
+                    color: tokens.border_subtle,
+                    width: 1.0,
+                    radius: theme::radius::PILL,
+                },
+                ..Default::default()
+            });
 
-        let is_dark = self.active_theme == Theme::Dark;
-        let theme_toggle_btn = button(text(if is_dark { "☀️ Light" } else { "🌙 Dark" }).size(12))
-            .padding([4, 10])
-            .on_press(Message::ToggleDarkMode(!is_dark));
+        let rate_gauge = view_gauge(&self.connection_state.rate_limits);
+
+        let is_dark = tokens == theme::ThemeTokens::dark();
+        let theme_toggle_btn = button(
+            row![
+                text(if is_dark { "☀️" } else { "🌙" }).size(12),
+                text(if is_dark { "Light" } else { "Dark" })
+                    .size(12)
+                    .color(tokens.text_primary),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([5, 12])
+        .on_press(Message::ToggleDarkMode(!is_dark))
+        .style(move |_theme, status| theme::button_secondary(tokens, status));
 
         let header = container(
             row![
                 brand,
-                row![nav_search, nav_history, nav_settings].spacing(8),
+                Space::new().width(Length::Fixed(12.0)),
+                nav_pill_bar,
+                Space::new().width(Length::Fill),
                 row![rate_gauge, theme_toggle_btn]
                     .spacing(12)
                     .align_y(Alignment::Center),
             ]
-            .spacing(18)
+            .spacing(12)
             .align_y(Alignment::Center),
         )
-        .padding([10, 16])
+        .padding([8, 16])
         .width(Length::Fill)
-        .style(|_theme| container::Style {
-            background: Some(Color::from_rgba(0.09, 0.1, 0.15, 0.98).into()),
-            border: iced::Border {
-                color: Color::from_rgba(0.25, 0.28, 0.4, 0.4),
+        .style(move |_theme| container::Style {
+            background: Some(tokens.bg_surface.into()),
+            border: Border {
+                color: tokens.border_subtle,
                 width: 1.0,
                 ..Default::default()
             },
@@ -953,13 +1460,14 @@ impl App {
         if let Some(notice) = &self.startup_notice {
             let dismiss_btn = button(text("✕").size(12))
                 .padding([2, 6])
-                .on_press(Message::DismissStartupNotice);
+                .on_press(Message::DismissStartupNotice)
+                .style(move |_theme, status| theme::button_secondary(tokens, status));
 
             let notice_bar = container(
                 row![
                     text(format!("ℹ️ {}", notice))
                         .size(12)
-                        .color(Color::from_rgb(0.95, 0.85, 0.4)),
+                        .color(tokens.warning),
                     dismiss_btn,
                 ]
                 .spacing(12)
@@ -967,12 +1475,15 @@ impl App {
             )
             .padding([6, 14])
             .width(Length::Fill)
-            .style(|_theme| container::Style {
-                background: Some(Color::from_rgba(0.3, 0.25, 0.1, 0.4).into()),
-                border: iced::Border {
-                    color: Color::from_rgb(0.8, 0.65, 0.2),
+            .style(move |_theme| container::Style {
+                background: Some(
+                    Color::from_rgba(tokens.warning.r, tokens.warning.g, tokens.warning.b, 0.15)
+                        .into(),
+                ),
+                border: Border {
+                    color: tokens.warning,
                     width: 1.0,
-                    radius: 4.0.into(),
+                    radius: theme::radius::SM,
                 },
                 ..Default::default()
             });
@@ -983,13 +1494,12 @@ impl App {
         if let Some(err) = &self.error_banner {
             let dismiss_btn = button(text("✕").size(12))
                 .padding([2, 6])
-                .on_press(Message::DismissError);
+                .on_press(Message::DismissError)
+                .style(move |_theme, status| theme::button_secondary(tokens, status));
 
             let error_bar = container(
                 row![
-                    text(format!("❌ {}", err))
-                        .size(12)
-                        .color(Color::from_rgb(0.96, 0.45, 0.45)),
+                    text(format!("❌ {}", err)).size(12).color(tokens.danger),
                     dismiss_btn,
                 ]
                 .spacing(12)
@@ -997,12 +1507,15 @@ impl App {
             )
             .padding([6, 14])
             .width(Length::Fill)
-            .style(|_theme| container::Style {
-                background: Some(Color::from_rgba(0.4, 0.1, 0.12, 0.4).into()),
-                border: iced::Border {
-                    color: Color::from_rgb(0.85, 0.3, 0.3),
+            .style(move |_theme| container::Style {
+                background: Some(
+                    Color::from_rgba(tokens.danger.r, tokens.danger.g, tokens.danger.b, 0.15)
+                        .into(),
+                ),
+                border: Border {
+                    color: tokens.danger,
                     width: 1.0,
-                    radius: 4.0.into(),
+                    radius: theme::radius::SM,
                 },
                 ..Default::default()
             });
@@ -1014,26 +1527,26 @@ impl App {
         let body: Element<Message> = match self.active_screen {
             Screen::Search => view_search(
                 &self.search_state,
+                &self.active_theme,
                 Message::SearchInputChanged,
                 Message::SearchSubmitted,
+                Message::SearchClear,
                 Message::FilterSelected,
+                Message::SortSelected,
                 Message::SelectRepo,
             ),
             Screen::Inspect => {
                 if let Some(inspect) = &self.inspect_state {
-                    view_inspect(
-                        inspect,
-                        Message::NavigateTo(Screen::Search),
-                        Message::ToggleComponent,
-                        Message::SelectInspectTab,
-                        Message::InitiateInstall,
-                    )
+                    view_inspect(inspect, &self.active_theme, Message::InspectAction)
                 } else {
                     view_search(
                         &self.search_state,
+                        &self.active_theme,
                         Message::SearchInputChanged,
                         Message::SearchSubmitted,
+                        Message::SearchClear,
                         Message::FilterSelected,
+                        Message::SortSelected,
                         Message::SelectRepo,
                     )
                 }
@@ -1051,33 +1564,33 @@ impl App {
                 } else {
                     view_search(
                         &self.search_state,
+                        &self.active_theme,
                         Message::SearchInputChanged,
                         Message::SearchSubmitted,
+                        Message::SearchClear,
                         Message::FilterSelected,
+                        Message::SortSelected,
                         Message::SelectRepo,
                     )
                 }
             }
             Screen::History => view_history(
                 &self.history_state,
-                |force| Message::RequestRollbackLatest { force_dirty: force },
-                |tx_id, force| Message::RequestRollbackTx {
-                    tx_id,
-                    force_dirty: force,
-                },
-                Message::CloseDirtyModal,
+                &self.active_theme,
+                Message::HistoryAction,
             ),
             Screen::Settings => view_settings(
                 &self.settings_state,
-                &self.search_state.rate_limits,
-                Message::SettingsTokenChanged,
-                Message::SettingsToggleMask,
-                Message::SettingsSaveToken,
-                Message::SettingsClearToken,
-                Message::SettingsTestConnection,
+                &self.connection_state.rate_limits,
+                &self.active_theme,
+                Message::SettingsAction,
             ),
         };
 
-        column![header, alerts_col, body].spacing(0).into()
+        container(column![header, alerts_col, body].spacing(0))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_theme| theme::container_base(tokens))
+            .into()
     }
 }
